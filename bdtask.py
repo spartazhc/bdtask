@@ -110,31 +110,7 @@ def cfg_update(odir, js_dou, js_imdb):
     cfg["crf"] = [21, 22, 23]
     cfg["crf_final"] = None
 
-def main():
-    parser = argparse.ArgumentParser(prog="bdtask",
-                description="bdtask is a script to generate and manage bluray encode tasks")
-    parser.add_argument("-g", "--generate",
-                        help = "generate a bluray encode task")
-    parser.add_argument("-p", "--playlist", type = int,
-                        help = "select bluray playlist")
-    parser.add_argument("-n", "--name", type = str,
-                        help = "name of task")
-    parser.add_argument("-s", "--src", type = str,
-                        help = "bluray disc path")
-    parser.add_argument("-d", "--dstdir", type = str, default = ".",
-                        help = "output destination dir")
-    parser.add_argument("--douban", type = str,
-                        help = "douban url")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="increase output verbosity")
-    args = parser.parse_args()
-    pls    = args.playlist
-    src    = args.src
-    tname  = args.name.replace(" ", ".")
-    dstdir = args.dstdir
-    douban = args.douban
-    verbose = args.verbose
-
+def gen_main(pls, tname, src, dstdir, douban, verbose):
     parent_dir = os.path.join(dstdir, tname)
     # copy template files to parent_dir
     copy_tree(template_dir, parent_dir)
@@ -167,6 +143,43 @@ def main():
         print(yaml.dump(cfg))
     with open(os.path.join(parent_dir, "config.yaml"), "wt") as out_file:
         out_file.write(yaml.dump(cfg))
+
+def status_main(dstdir):
+    return
+def main():
+    parser = argparse.ArgumentParser(prog='bdtask',
+                description='bdtask is a script to generate and manage bluray encode tasks')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='increase output verbosity')
+    subparsers = parser.add_subparsers(help='sub-commands', dest='subparser_name')
+    parser_g = subparsers.add_parser('gen', help='generate a bluray encode task')
+    parser_g.add_argument('-p', '--playlist', type=int, default='1',
+                          help='select bluray playlist')
+    parser_g.add_argument('-n', '--name', type=str, default='bdtask_default',
+                          help='name of task')
+    parser_g.add_argument('-s', '--src', type=str, required=True,
+                          help='bluray disc path')
+    parser_g.add_argument('-d', '--dstdir', type=str, default='.',
+                          help='output destination dir')
+    parser_g.add_argument('--douban', type=str, required=True,
+                          help='douban url')
+    parser_s = subparsers.add_parser('status', help='check task status')
+    parser_s.add_argument('-d', '--taskdir', type=str, default='.', required=True,
+                          help='task dir to check')
+
+    args = parser.parse_args()
+    verbose = args.verbose
+
+    if (args.subparser_name == "gen"):
+        pls    = args.playlist
+        tname  = args.name.replace(" ", ".")
+        src    = args.src
+        dstdir = args.dstdir
+        douban = args.douban
+        gen_main(pls, tname, src, dstdir, douban, verbose)
+    elif (args.subparser_name == "status"):
+        dstdir = args.taskdir
+        status_main(dstdir)
 
 
 if __name__ == "__main__":
