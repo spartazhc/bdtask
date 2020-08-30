@@ -3,6 +3,7 @@
 import argparse
 import sys
 import os
+import time
 import subprocess
 import yaml
 import json
@@ -168,8 +169,27 @@ def gen_main(pls, tname, src, dstdir, douban, verbose):
     with open(os.path.join(parent_dir, "config.yaml"), "wt") as out_file:
         out_file.write(yaml.dump(cfg))
 
+def status_new_item(logfd, parent, name, detail):
+    item = {}
+    item["parent"] = parent
+    item["name"] = name
+    item["detail"] = detail
+    item["time"] = time.strftime("%Y/%m/%d-%H:%M:%S", time.localtime())
+    with open(logfd, 'a+') as fd:
+        fd.write("---")
+        fd.write(yaml.dump(item))
+
 def status_main(dstdir):
-    return
+    if (os.path.isfile("tasklog.yaml")):
+        logs = []
+        with open("tasklog.yaml", 'r') as fd:
+            for log in yaml.load_all(fd, Loader=yaml.FullLoader):
+                logs.append(log)
+        for log in logs:
+            if (log['parent']):
+                print(f"[{log['time']}] [{log['parent']}/{log['name']}] {log['detail']}")
+    else:
+        return
 
 def x265_encode(rcfg, hevc_dir, crf, is_full):
     vpy = rcfg['vpy']
@@ -301,6 +321,7 @@ def main():
         gen_main(pls, tname, src, dstdir, douban, verbose)
     elif (args.subparser_name == "status"):
         dstdir = args.taskdir
+        os.chdir(dstdir)
         status_main(dstdir)
     elif (args.subparser_name == "crf"):
         dstdir   = args.taskdir
