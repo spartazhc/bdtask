@@ -171,15 +171,6 @@ def gen_main(pls, tname, src, dstdir, douban, verbose):
 def status_main(dstdir):
     return
 
-def load_x265_setting(config):
-    if (os.path.isfile(config)):
-        with open(config, 'r') as f:
-            set = yaml.load(f, Loader=yaml.FullLoader)
-            return set['x265_cfg']
-    else:
-        return None
-
-
 def x265_encode(rcfg, hevc_dir, crf, is_full):
     vpy = rcfg['vpy']
     qcomp = rcfg['qcomp']
@@ -211,14 +202,14 @@ def x265_encode(rcfg, hevc_dir, crf, is_full):
           f'--subme {subme} --ref {ref} --pmode --no-rect --no-amp --rskip 0 --tu-intra-depth 4 --tu-inter-depth 4 --range limited ' \
           f'--no-open-gop --no-sao --rc-lookahead {rclookahead} --no-cutree --bframes {bframes} --vbv-bufsize {vbvbufsize} --vbv-maxrate {vbvmaxrate} ' \
           f'--colorprim {colorprim} --transfer {transfer} --colormatrix {colormatrix} --deblock {deblock} --ipratio {ipratio} --pbratio {pbratio} --qcomp {qcomp} ' \
-          f'--aq-mode {aqmode} --aq-strength {aqstrength} --psy-rd {psyrd} --psy-rdoq {psyrdoq} --output "{name}.mkv" --y4m - 2>&1 | tee "{name}.log"'
+          f'--aq-mode {aqmode} --aq-strength {aqstrength} --psy-rd {psyrd} --psy-rdoq {psyrdoq} --output "{name}.hevc" --y4m - 2>&1 | tee "{name}.log"'
     try:
         subprocess.run(cmd, shell=True)
     except subprocess.CalledProcessError as e:
         print("failed to execute command ", e.output)
         raise
 
-def crf_main(dstdir, crf_list):
+def crf_main(crf_list, is_force):
     # load x265_setting from config.yaml
     if (not os.path.isfile("config.yaml")):
         return
@@ -226,12 +217,15 @@ def crf_main(dstdir, crf_list):
         cfg_ori = yaml.load(f, Loader=yaml.FullLoader)
     x265_cfg = cfg_ori["x265_cfg"]
     cfg_update = cfg_ori
+
     if (not cfg_ori["crf"]):
         crf_diff = crf_list
         cfg_update["crf"] = crf_list
     else:
         crf_diff = [crf for crf in crf_list if crf not in cfg_ori["crf"]]
         cfg_update["crf"].extend(crf_diff)
+        if (is_force):
+            crf_diff = crf_list
 
     with open("config.yaml", "w+") as fd:
         fd.write(yaml.dump(cfg_update))
@@ -239,9 +233,28 @@ def crf_main(dstdir, crf_list):
     hevc_dir = os.path.join("components/hevc")
     if not os.path.exists(hevc_dir):
         os.makedirs(hevc_dir)
-    for crf in crf_diff:
-        x265_encode(x265_cfg, hevc_dir, crf, False)
+    if (crf_diff):
+        print(f"crf: {crf_diff} will be tested!")
+        for crf in crf_diff:
+            x265_encode(x265_cfg, hevc_dir, crf, False)
+    else:
+        print(f"crf: nothing to do! crf value {crf_list} may have be tested already.")
     return
+
+# TODO: current grep is ok, but maybe use re to refine output
+def crf_show():
+    hevc_dir = "components/hevc"
+    if (not os.path.exists(hevc_dir)):
+        return
+    else:
+        try:
+            o = subprocess.check_output(f"grep encoded {hevc_dir}/*.log ",
+                                            shell=True).decode("UTF-8")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
+        print(o)
+        return
 
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
@@ -273,7 +286,8 @@ def main():
                           help='crf value to test')
     parser_c.add_argument('--show', action='store_true',
                           help='show crf test results')
-
+    parser_c.add_argument('--force', action='store_true',
+                        help='re-run crf test forcely')
 
     args = parser.parse_args()
     verbose = args.verbose
@@ -289,25 +303,16 @@ def main():
         dstdir = args.taskdir
         status_main(dstdir)
     elif (args.subparser_name == "crf"):
-        dstdir = args.taskdir
+        dstdir   = args.taskdir
         crf_list = args.val
-        is_show = args.show
+        is_show  = args.show
+        is_force = args.force
+        # chdir will simplify subsequent dir operations
         os.chdir(dstdir)
+        if (crf_list):
+            crf_main(crf_list, is_force)
         if (is_show):
-            hevc_dir = "components/hevc"
-            if (not os.path.exists(hevc_dir)):
-                return
-            else:
-                try:
-                    o = subprocess.check_output(f"grep encoded {hevc_dir}/*.log ",
-                                                    shell=True).decode("UTF-8")
-                except subprocess.CalledProcessError as e:
-                    print("failed to execute command ", e.output)
-                    raise
-                print(o)
-                return
-        print(f"crf: {crf_list} will be tested!")
-        crf_main(dstdir, crf_list)
+            crf_show()
 
 
 if __name__ == "__main__":
