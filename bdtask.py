@@ -5,6 +5,7 @@ import sys
 import os
 import time
 import subprocess
+import logging
 import yaml
 import json
 import shutil
@@ -27,14 +28,18 @@ def ptgen_request(url):
 def cover_download(url, odir):
     retry = 0
     while (retry < 5):
+        print(f"downloading poster {url}, try={retry}")
         r = requests.get(url, stream=True)
+        retry += 1
         if (r.status_code == 200):
             break
     if (r.status_code == 200):
         with open(os.path.join(odir, "cover.jpg"), 'wb') as fd:
             for chunk in r.iter_content(1024):
                 fd.write(chunk)
-
+        return 1
+    else:
+        return 0
 
 """
 call bdinfo to retrive bdinfo, write it to bdinfo.yaml
@@ -134,8 +139,15 @@ def cfg_update(js_dou, js_imdb):
     cfg["x265_cfg"] = x265_cfg
 
 
-def gen_main(pls, tname, src, dstdir, douban, verbose):
-    parent_dir = os.path.join(dstdir, tname)
+def gen_main(pls, taskdir, src, douban, verbose):
+    if not os.path.exists(taskdir):
+        os.makedirs(taskdir)
+    logger = logging.getLogger(name='GEN')
+    fileh = logging.FileHandler(f"{taskdir}/bdtask.log", 'a')
+    formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
+    fileh.setFormatter(formater)
+    logger.addHandler(fileh)
+    parent_dir = taskdir
     cfg["task_dir"] = os.path.abspath(parent_dir)
     # copy template files to parent_dir
     copy_tree(template_dir, parent_dir)
@@ -149,25 +161,37 @@ def gen_main(pls, tname, src, dstdir, douban, verbose):
     # request ptgen to get infomation
     js_dou = ptgen_request(douban)
     if (js_dou):
+        logger.info("douban requested", extra={'task': 'ptgen'})
         with open(os.path.join(parent_dir, "ptgen.txt"), "wt") as fd:
             fd.write(js_dou["format"])
         with open(os.path.join(parent_dir, "douban.txt"), "wt") as fd:
             fd.write(json.dumps(js_dou, indent = 2))
         js_imdb = ptgen_request(js_dou["imdb_link"])
         if (js_imdb):
+            logger.info("imdb requested", extra={'task': 'ptgen'})
             with open(os.path.join(parent_dir, "imdb.txt"), "wt") as fd:
                 fd.write(json.dumps(js_imdb, indent = 2))
+        else:
+            logger.error("failed to request imdb", extra={'task': 'ptgen'})
+
+    else:
+        logger.error("failed to request douban", extra={'task': 'ptgen'})
+
     cfg_update(js_dou, js_imdb)
 
     publish_dir = os.path.join(parent_dir, cfg["pub_dir"])
     if not os.path.exists(publish_dir):
         os.makedirs(publish_dir)
-    cover_download(js_dou["poster"], publish_dir)
+    if cover_download(js_dou["poster"], publish_dir):
+        logger.info("poster downloaded", extra={'task': 'poster'})
+    else:
+        logger.error("failed to download poster", extra={'task': 'poster'})
 
     if (verbose):
         print(yaml.dump(cfg))
     with open(os.path.join(parent_dir, "config.yaml"), "wt") as out_file:
         out_file.write(yaml.dump(cfg))
+        logger.info("config.yaml writed", extra={'task': 'cfg'})
 
 def status_new_item(logfd, parent, name, detail):
     item = {}
@@ -230,15 +254,22 @@ def x265_encode(rcfg, hevc_dir, crf, is_full):
         raise
 
 def crf_main(crf_list, is_force):
+    logger = logging.getLogger(name='CRF')
+    fileh = logging.FileHandler("bdtask.log", 'a')
+    formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
+    fileh.setFormatter(formater)
+    logger.addHandler(fileh)
     # load x265_setting from config.yaml
     if (not os.path.isfile("config.yaml")):
         return
     with open("config.yaml", 'r') as f:
         cfg_ori = yaml.load(f, Loader=yaml.FullLoader)
+    if not cfg_ori:
+        logger.error("fail to parse config.yaml", extra={'task': 'prepare'})
     x265_cfg = cfg_ori["x265_cfg"]
     cfg_update = cfg_ori
 
-    if (not cfg_ori["crf"]):
+    if not "crf" in cfg_ori.keys():
         crf_diff = crf_list
         cfg_update["crf"] = crf_list
     else:
@@ -255,6 +286,7 @@ def crf_main(crf_list, is_force):
         os.makedirs(hevc_dir)
     if (crf_diff):
         print(f"crf: {crf_diff} will be tested!")
+        logger.info(f"{crf_diff} will be tested", extra={'task': 'crf'})
         for crf in crf_diff:
             x265_encode(x265_cfg, hevc_dir, crf, False)
     else:
@@ -290,7 +322,7 @@ def main():
                           help='name of task')
     parser_g.add_argument('-s', '--src', type=str, required=True,
                           help='bluray disc path')
-    parser_g.add_argument('-d', '--dstdir', type=str, default='.',
+    parser_g.add_argument('-d', '--taskdir', type=str, default='.',
                           help='output destination dir')
     parser_g.add_argument('--douban', type=str, required=True,
                           help='douban url')
@@ -311,25 +343,26 @@ def main():
 
     args = parser.parse_args()
     verbose = args.verbose
+    taskdir = args.taskdir
 
+    logging.basicConfig(format='%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s',
+                        level=logging.INFO)
     if (args.subparser_name == "gen"):
         pls    = args.playlist
-        tname  = args.name.replace(" ", ".")
         src    = args.src
-        dstdir = args.dstdir
         douban = args.douban
-        gen_main(pls, tname, src, dstdir, douban, verbose)
+        tname  = args.name.replace(" ", ".")
+        parent_dir = os.path.join(taskdir, tname)
+        gen_main(pls, parent_dir, src, douban, verbose)
     elif (args.subparser_name == "status"):
-        dstdir = args.taskdir
-        os.chdir(dstdir)
-        status_main(dstdir)
+        os.chdir(taskdir)
+        status_main(taskdir)
     elif (args.subparser_name == "crf"):
-        dstdir   = args.taskdir
         crf_list = args.val
         is_show  = args.show
         is_force = args.force
         # chdir will simplify subsequent dir operations
-        os.chdir(dstdir)
+        os.chdir(taskdir)
         if (crf_list):
             crf_main(crf_list, is_force)
         if (is_show):
