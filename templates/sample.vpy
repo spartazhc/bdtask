@@ -5,11 +5,11 @@ from vsutil import depth as Depth
 import yaml
 core = vs.get_core()
 
-with open('config.yaml', 'r') as f:
+with open('../config.yaml', 'r') as f:
     cfg = yaml.load(f, Loader=yaml.FullLoader)
 
 src = core.lsmas.LWLibavSource(source = cfg["m2ts"], cache = True,
-                                cachefile = f"{cfg['task_dir']}/{cfg['name']}.lwi")
+                                cachefile = f"{cfg['task_dir']}/vs/{cfg['name']}.lwi")
 ccrop = cfg["crop"]
 crop=core.std.Crop(src, ccrop[0], ccrop[1], ccrop[2], ccrop[3])
 

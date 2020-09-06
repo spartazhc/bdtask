@@ -115,7 +115,7 @@ def cfg_update(js_dou, js_imdb):
     # cfg["crf"] = [21, 22, 23]
     # cfg["crf_final"] = None
     x265_cfg = {}
-    x265_cfg['vpy']          = "sample.vpy"
+    x265_cfg['vpy']          = "vs/sample.vpy"
     x265_cfg['qcomp']        = 0.6
     x265_cfg['preset']       = "veryslow"
     x265_cfg['bframes']      = 16
@@ -149,27 +149,34 @@ def gen_main(pls, taskdir, src, douban, verbose):
     logger.addHandler(fileh)
     parent_dir = taskdir
     cfg["task_dir"] = os.path.abspath(parent_dir)
+    info_dir = os.path.join(parent_dir, "info")
+    if not os.path.exists(info_dir):
+        os.makedirs(info_dir)
+    vs_dir = os.path.join(parent_dir, "vs")
+    if not os.path.exists(vs_dir):
+        os.makedirs(vs_dir)
     # copy template files to parent_dir
-    copy_tree(template_dir, parent_dir)
+    copy_tree(template_dir, vs_dir)
     components_dir = os.path.join(parent_dir, "components")
+    components_dir = os.path.abspath(components_dir)
     if not os.path.exists(components_dir):
         os.makedirs(components_dir)
 
-    bdinfo = get_bdinfo(pls, src, parent_dir)
+    bdinfo = get_bdinfo(pls, src, info_dir)
     extract_cmd(bdinfo, pls, src, components_dir)
 
     # request ptgen to get infomation
     js_dou = ptgen_request(douban)
     if (js_dou):
         logger.info("douban requested", extra={'task': 'ptgen'})
-        with open(os.path.join(parent_dir, "ptgen.txt"), "wt") as fd:
+        with open(os.path.join(info_dir, "ptgen.txt"), "wt") as fd:
             fd.write(js_dou["format"])
-        with open(os.path.join(parent_dir, "douban.txt"), "wt") as fd:
+        with open(os.path.join(info_dir, "douban.txt"), "wt") as fd:
             fd.write(json.dumps(js_dou, indent = 2))
         js_imdb = ptgen_request(js_dou["imdb_link"])
         if (js_imdb):
             logger.info("imdb requested", extra={'task': 'ptgen'})
-            with open(os.path.join(parent_dir, "imdb.txt"), "wt") as fd:
+            with open(os.path.join(info_dir, "imdb.txt"), "wt") as fd:
                 fd.write(json.dumps(js_imdb, indent = 2))
         else:
             logger.error("failed to request imdb", extra={'task': 'ptgen'})
