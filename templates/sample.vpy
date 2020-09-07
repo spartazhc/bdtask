@@ -15,11 +15,13 @@ crop=core.std.Crop(src, ccrop[0], ccrop[1], ccrop[2], ccrop[3])
 
 #bb = awf.FixRowBrightnessProtect2(bb, 1079, -4)
 #bb = awf.FixColumnBrightnessProtect2(bb, 1, -8)
-# fb = core.fb.FillBorders(crop,left=1,right=1,bottom=0,mode="fillmargins")
-# fb = awf.bbmod(fb, left=2, right=2, u=True, v=True, blur=20, thresh=[5000, 1000])
+#fb = core.fb.FillBorders(crop,left=1,right=1,bottom=0,mode="fillmargins")
+#fb = awf.bbmod(fb, left=2, right=2, u=True, v=True, blur=20, thresh=[5000, 1000])
 
-
-select=core.std.SelectEvery(crop[2000:-2000],cycle=2500, offsets=range(100))
-ret=core.std.AssumeFPS(select, fpsnum=src.fps.numerator, fpsden=src.fps.denominator)
-
-ret.set_output()
+last = crop
+if not "crf_pick" in cfg.keys():
+    select = core.std.SelectEvery(last[2000:-2000],cycle=2500, offsets=range(100))
+    ret = core.std.AssumeFPS(select, fpsnum=src.fps.numerator, fpsden=src.fps.denominator)
+    ret.set_output()
+else:
+    last.set_output()

@@ -260,7 +260,7 @@ def x265_encode(rcfg, hevc_dir, crf, is_full):
         print("failed to execute command ", e.output)
         raise
 
-def crf_main(crf_list, is_force):
+def crf_main(crf_list, is_force, is_pick, is_full):
     logger = logging.getLogger(name='CRF')
     fileh = logging.FileHandler("bdtask.log", 'a')
     formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
@@ -276,6 +276,12 @@ def crf_main(crf_list, is_force):
     x265_cfg = cfg_ori["x265_cfg"]
     cfg_update = cfg_ori
 
+    if (is_full):
+        logger.info(f"crf: {cfg_ori['crf_pick']} will be encoded", extra={'task': 'full'})
+        x265_encode(x265_cfg, "components/hevc", cfg_ori['crf_pick'], True)
+        return
+
+    # update config.yaml
     if not "crf" in cfg_ori.keys():
         crf_diff = crf_list
         cfg_update["crf"] = crf_list
@@ -285,15 +291,23 @@ def crf_main(crf_list, is_force):
         if (is_force):
             crf_diff = crf_list
 
+    #  if not "crf_pick" in cfg_ori.keys():
+    if (is_pick):
+        cfg_update["crf_pick"] = crf_list[0]
+        logger.info(f"crf value {crf_list[0]} is picked", extra={'task': 'pick'})
+
     with open("config.yaml", "w+") as fd:
         fd.write(yaml.dump(cfg_update))
+        if (is_pick):
+            return
 
     hevc_dir = os.path.join("components/hevc")
     if not os.path.exists(hevc_dir):
         os.makedirs(hevc_dir)
+
     if (crf_diff):
         print(f"crf: {crf_diff} will be tested!")
-        logger.info(f"{crf_diff} will be tested", extra={'task': 'crf'})
+        logger.info(f"crf: {crf_diff} will be tested", extra={'task': 'crf'})
         for crf in crf_diff:
             x265_encode(x265_cfg, hevc_dir, crf, False)
     else:
@@ -347,6 +361,10 @@ def main():
                           help='show crf test results')
     parser_c.add_argument('--force', action='store_true',
                         help='re-run crf test forcely')
+    parser_c.add_argument('--pick', action='store_true',
+                        help='pick crf value')
+    parser_c.add_argument('--full', action='store_true',
+                        help='run full encode')
 
     args = parser.parse_args()
     verbose = args.verbose
@@ -368,10 +386,12 @@ def main():
         crf_list = args.val
         is_show  = args.show
         is_force = args.force
+        is_pick  = args.pick
+        is_full  = args.full
         # chdir will simplify subsequent dir operations
         os.chdir(taskdir)
-        if (crf_list):
-            crf_main(crf_list, is_force)
+        if (crf_list or is_full):
+            crf_main(crf_list, is_force, is_pick, is_full)
         if (is_show):
             crf_show()
 
