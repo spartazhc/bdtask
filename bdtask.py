@@ -11,6 +11,7 @@ import json
 import shutil
 import requests
 from distutils.dir_util import copy_tree
+from scripts.nfogen import generate_nfo
 
 template_dir = "/home/spartazhc/source/bdtask/templates/"
 cfg = {}
@@ -338,6 +339,13 @@ def crf_show():
         print(o)
         return
 
+def nfo_main():
+    with open("config.yaml", 'r') as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+    mkv = f"{cfg['pub_dir']}/{cfg['fullname']}.mkv"
+    nfo = f"{cfg['pub_dir']}/{cfg['fullname']}.nfo"
+    generate_nfo(mkv, "info", cfg['source'], nfo)
+
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
                 description='bdtask is a script to generate and manage bluray encode tasks')
@@ -374,6 +382,11 @@ def main():
                         help='pick crf value')
     parser_c.add_argument('--full', action='store_true',
                         help='run full encode')
+    # subparser [nfo]
+    parser_n = subparsers.add_parser('nfo', help='generate nfo from mkv')
+    parser_n.add_argument('-d', '--taskdir', type=str, default='.', required=True,
+                          help='task dir')
+
 
     args = parser.parse_args()
     verbose = args.verbose
@@ -403,6 +416,9 @@ def main():
             crf_main(crf_list, is_force, is_pick, is_full)
         if (is_show):
             crf_show()
+    elif (args.subparser_name == "nfo"):
+        os.chdir(taskdir)
+        nfo_main()
 
 
 if __name__ == "__main__":
