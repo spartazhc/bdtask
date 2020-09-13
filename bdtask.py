@@ -75,22 +75,29 @@ def extract_cmd(info, playlist, bd_path, odir):
 
     clip = info["clips"][0]
     cfg["m2ts"]= os.path.join(bd_path, "BDMV", "STREAM", clip["name"])
+    aud_l = []
+    sub_l = []
     # there should be only one video stream
     for i, aud in enumerate(clip["streams"]["audio"]):
         if (aud["codec"] == "PCM"):
             aud_name = "{}{}.flac".format(aud["language"], i)
             aud_path = os.path.join(odir, aud_name)
+            aud_l.append(aud_name)
             cmd += "-codec flac -compression_level 12 -map a:{} {} ".format(i, aud_path)
         elif (aud["codec"] == "AC3"):
             aud_name = "{}{}.ac3".format(aud["language"], i)
             aud_path = os.path.join(odir, aud_name)
+            aud_l.append(aud_name)
             cmd += "-codec copy -map a:{} {} ".format(i, aud_path)
     for i, sub in enumerate(clip["streams"]["subtitles"]):
         if (sub["codec"] != "HDMV/PGS"):
             break
         sub_name = "{}{}.sup".format(sub["language"], i)
         sub_path = os.path.join(odir, sub_name)
+        sub_l.append(sub_name)
         cmd += "-codec copy -map s:{} {} ".format(i, sub_path)
+    cfg["aud"] = aud_l
+    cfg["sub"] = sub_l
     if (verbose):
         print(cmd)
     with open(os.path.join(odir, "extract.sh"), "wt") as fd:
@@ -343,6 +350,31 @@ def crf_show():
         print(o)
         return
 
+def mkv_main(is_run, subs):
+    with open("config.yaml", 'r') as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+    mkv = f"{cfg['pub_dir']}/{cfg['fullname']}.mkv"
+    hevc = f"components/hevc/crf-{cfg['crf_pick']}-full.hevc"
+
+    cmd = f"mkvmerge -o {mkv} --chapters components/chapters.xml -d 0 {hevc} "
+    for aud in cfg['aud']:
+        aud_lang = aud.split('.')[0][:-1]
+        cmd += f"-a 0 --language 0:{aud_lang} components/{aud} "
+    for sub in cfg['sub']:
+        sub_lang = sub.split('.')[0][:-1]
+        cmd += f"-s 0 --language 0:{sub_lang} components/{sub} "
+    while subs and len(subs) > 0:
+        cmd += f"-s 0 --language 0:{subs.pop()} --track-name 0:{subs.pop()} components/{subs.pop()} "
+    print(cmd)
+    # TODO: tee to log
+    if (is_run):
+        try:
+            o = subprocess.check_output(cmd, shell=True).decode("UTF-8")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
+        print(o)
+
 def nfo_main():
     with open("config.yaml", 'r') as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -388,6 +420,12 @@ def main():
                         help='pick crf value')
     parser_c.add_argument('--full', action='store_true',
                         help='run full encode')
+    # subparser [mkv]
+    parser_m = subparsers.add_parser('mkv', help='call mkvmerge to mux all components')
+    parser_m.add_argument('-d', '--taskdir', type=str, default='.', required=True,
+                          help='task dir')
+    parser_m.add_argument('--run', action='store_true', help='run the mkvmerge script')
+    parser_m.add_argument('--sub', nargs='*', help='add additional subtitles: [lang] [track name] [file]')
     # subparser [nfo]
     parser_n = subparsers.add_parser('nfo', help='generate nfo from mkv')
     parser_n.add_argument('-d', '--taskdir', type=str, default='.', required=True,
@@ -423,6 +461,11 @@ def main():
             crf_main(crf_list, is_force, is_pick, is_full)
         if (is_show):
             crf_show()
+    elif (args.subparser_name == "mkv"):
+        is_run = args.run
+        subs = args.sub
+        os.chdir(taskdir)
+        mkv_main(is_run, subs)
     elif (args.subparser_name == "nfo"):
         os.chdir(taskdir)
         nfo_main()
