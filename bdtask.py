@@ -203,7 +203,10 @@ def gen_main(pls, taskdir, src, douban, source, verbose):
     if cover_download(js_dou["poster"], publish_dir):
         logger.info("poster downloaded", extra={'task': 'poster'})
     else:
-        logger.error("failed to download poster", extra={'task': 'poster'})
+        if cover_download(js_imdb["poster"], publish_dir):
+            logger.info("poster downloaded", extra={'task': 'poster'})
+        else:
+            logger.error("failed to download poster", extra={'task': 'poster'})
 
     if (verbose):
         print(yaml.dump(cfg))
