@@ -171,12 +171,12 @@ def gen_main(pls, taskdir, src, douban, verbose):
         logger.info("douban requested", extra={'task': 'ptgen'})
         with open(os.path.join(info_dir, "ptgen.txt"), "wt") as fd:
             fd.write(js_dou["format"])
-        with open(os.path.join(info_dir, "douban.txt"), "wt") as fd:
+        with open(os.path.join(info_dir, "douban.json"), "wt") as fd:
             fd.write(json.dumps(js_dou, indent = 2))
         js_imdb = ptgen_request(js_dou["imdb_link"])
         if (js_imdb):
             logger.info("imdb requested", extra={'task': 'ptgen'})
-            with open(os.path.join(info_dir, "imdb.txt"), "wt") as fd:
+            with open(os.path.join(info_dir, "imdb.json"), "wt") as fd:
                 fd.write(json.dumps(js_imdb, indent = 2))
         else:
             logger.error("failed to request imdb", extra={'task': 'ptgen'})
