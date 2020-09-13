@@ -372,7 +372,7 @@ def main():
     parser_c = subparsers.add_parser('crf', help='submit crf test')
     parser_c.add_argument('-d', '--taskdir', type=str, default='.', required=True,
                           help='task dir')
-    parser_c.add_argument('-c', '--val', type=int, nargs='+',
+    parser_c.add_argument('-c', '--val', type=float, nargs='+',
                           help='crf value to test')
     parser_c.add_argument('--show', action='store_true',
                           help='show crf test results')
