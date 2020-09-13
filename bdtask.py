@@ -148,7 +148,7 @@ def cfg_update(js_dou, js_imdb):
     cfg["x265_cfg"] = x265_cfg
 
 
-def gen_main(pls, taskdir, src, douban, verbose):
+def gen_main(pls, taskdir, src, douban, source, verbose):
     if not os.path.exists(taskdir):
         os.makedirs(taskdir)
     logger = logging.getLogger(name='GEN')
@@ -158,6 +158,7 @@ def gen_main(pls, taskdir, src, douban, verbose):
     logger.addHandler(fileh)
     parent_dir = taskdir
     cfg["task_dir"] = os.path.abspath(parent_dir)
+    cfg['source'] = source
     info_dir = os.path.join(parent_dir, "info")
     if not os.path.exists(info_dir):
         os.makedirs(info_dir)
@@ -364,6 +365,8 @@ def main():
                           help='output destination dir')
     parser_g.add_argument('--douban', type=str, required=True,
                           help='douban url')
+    parser_g.add_argument('--source', type=str, required=True,
+                          help='bluray source')
     # subparser [status]
     parser_s = subparsers.add_parser('status', help='check task status')
     parser_s.add_argument('-d', '--taskdir', type=str, default='.', required=True,
@@ -398,9 +401,10 @@ def main():
         pls    = args.playlist
         src    = args.src
         douban = args.douban
+        source = args.source
         tname  = args.name.replace(" ", ".")
         parent_dir = os.path.join(taskdir, tname)
-        gen_main(pls, parent_dir, src, douban, verbose)
+        gen_main(pls, parent_dir, src, douban, source, verbose)
     elif (args.subparser_name == "status"):
         os.chdir(taskdir)
         status_main(taskdir)
