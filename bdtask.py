@@ -57,6 +57,14 @@ def get_bdinfo(playlist, bd_path, opath):
     info = yaml.load(o, Loader=yaml.BaseLoader)
     return info
 
+def get_chapters(playlist, bd_path, opath):
+    try:
+        subprocess.call(f"bdinfo -cp {playlist} \"{bd_path}\" > {opath}/chapters.xml",
+                                        shell=True)
+    except subprocess.CalledProcessError as e:
+        print("failed to execute command ", e.output)
+        raise
+
 # TODO: generate cmd to concat those have multiple clips
 def extract_cmd(info, playlist, bd_path, odir):
     cmd = "ffmpeg -playlist {} -i 'bluray:{}' ".format(playlist, bd_path)
@@ -163,6 +171,7 @@ def gen_main(pls, taskdir, src, douban, verbose):
         os.makedirs(components_dir)
 
     bdinfo = get_bdinfo(pls, src, info_dir)
+    get_chapters(pls, src, components_dir)
     extract_cmd(bdinfo, pls, src, components_dir)
 
     # request ptgen to get infomation
