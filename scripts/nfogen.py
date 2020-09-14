@@ -27,10 +27,12 @@ def generate_nfo(ifile, info_dir, source, ofile):
             s_aud += f"AUDiO {'1' if not '@typeorder' in trak.keys() else trak['@typeorder']}.......: {langcodes.Language.get(trak['Language']).display_name():<7} {trak['Format']:>4} @ {int(trak['BitRate']) / 1000 :.0f} Kbps\n"
         elif trak['@type'] == 'Text':
             if 'Title' in trak.keys():
-                if trak['Title'].startwith("Tra"):
+                if trak['Title'].startswith("Tra"):
                     sub_la = "cht"
-                if trak['Title'].startwith("Simp"):
+                elif trak['Title'].startswith("Simp"):
                     sub_la = "chs"
+                elif trak['Title'].startswith("chs&"):
+                    sub_la = trak['Title']
             else:
                 sub_la = langcodes.Language.get(trak['Language']).to_tag()
                 if trak['Language'] == 'zh':
@@ -50,7 +52,7 @@ def generate_nfo(ifile, info_dir, source, ofile):
 
 
 NAME..........: {imdb['name']}
-GENRE.........: {imdb['genre']}
+GENRE.........: {imdb['genre'] if isinstance(imdb['genre'], str) else " | ".join(imdb['genre'])}
 RATiNG........: {imdb['imdb_rating']}
 iMDB URL......: {imdb['imdb_link']}
 DOUBAN URL....: {douban['douban_link']}
