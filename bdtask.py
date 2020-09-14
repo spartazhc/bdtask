@@ -42,6 +42,14 @@ def cover_download(url, odir):
     else:
         return 0
 
+def cover_download_wget(url, odir):
+    try:
+        subprocess.call(f"wget -O {os.path.join(odir, 'cover.jpg')} {url}", shell=True)
+    except subprocess.CalledProcessError as e:
+        print("failed to execute command ", e.output)
+        return 0
+    return 1
+
 """
 call bdinfo to retrive bdinfo, write it to bdinfo.yaml
 @return info in dict
@@ -208,10 +216,10 @@ def gen_main(pls, taskdir, src, douban, source, verbose):
     publish_dir = os.path.join(parent_dir, cfg["pub_dir"])
     if not os.path.exists(publish_dir):
         os.makedirs(publish_dir)
-    if cover_download(js_dou["poster"], publish_dir):
+    if cover_download_wget(js_dou["poster"], publish_dir):
         logger.info("poster downloaded", extra={'task': 'poster'})
     else:
-        if cover_download(js_imdb["poster"], publish_dir):
+        if cover_download_wget(js_imdb["poster"], publish_dir):
             logger.info("poster downloaded", extra={'task': 'poster'})
         else:
             logger.error("failed to download poster", extra={'task': 'poster'})
