@@ -55,7 +55,8 @@ def get_bdinfo(playlist, bd_path, opath):
         raise
     with open(os.path.join(opath, "bdinfo.yaml"), "wt") as fd:
         fd.write(o)
-    info = yaml.load(o, Loader=yaml.BaseLoader)
+
+    info = yaml.load(o.replace("]", " "), Loader=yaml.BaseLoader)
     return info
 
 def get_chapters(playlist, bd_path, opath):
@@ -364,7 +365,7 @@ def mkv_main(is_run, subs):
         sub_lang = sub.split('.')[0][:-1]
         cmd += f"-s 0 --language 0:{sub_lang} components/{sub} "
     while subs and len(subs) > 0:
-        cmd += f"-s 0 --language 0:{subs.pop()} --track-name 0:{subs.pop()} components/{subs.pop()} "
+        cmd += f"-s 0 --language 0:{subs.pop(0)} --track-name 0:\"{subs.pop(0)}\" {subs.pop(0)} "
     print(cmd)
     # TODO: tee to log
     if (is_run):
