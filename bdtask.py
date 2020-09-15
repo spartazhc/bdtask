@@ -69,7 +69,7 @@ def get_bdinfo(playlist, bd_path, opath):
 
 def get_chapters(playlist, bd_path, opath):
     try:
-        subprocess.call(f"bdinfo -cp {playlist} \"{bd_path}\" > {opath}/chapters.xml",
+        subprocess.call(f"bdinfo -cp {playlist} \"{bd_path}\" > \"{opath}/chapters.xml\"",
                                         shell=True)
     except subprocess.CalledProcessError as e:
         print("failed to execute command ", e.output)
@@ -112,8 +112,11 @@ def extract_cmd(info, playlist, bd_path, odir):
     with open(os.path.join(odir, "extract.sh"), "wt") as fd:
         fd.write(cmd)
 
-def cfg_update(js_dou, js_imdb):
-    name = js_imdb["name"].replace(" ", ".")
+def cfg_update(js_dou, js_imdb, is_aka):
+    if not is_aka:
+        name = js_imdb["name"].replace(" ", ".")
+    else:
+        name = js_dou['aka'][0].replace(" ", ".")
     cfg["name"] = name
     # TODO: deal with audio type: FLAC
     cfg["fullname"] = "{}.{}.Bluray.1080p.x265.10bit.FLAC.MNHD-FRDS".format(name, js_imdb["year"])
@@ -164,7 +167,7 @@ def cfg_update(js_dou, js_imdb):
     cfg["x265_cfg"] = x265_cfg
 
 
-def gen_main(pls, taskdir, src, douban, source, verbose):
+def gen_main(pls, taskdir, src, douban, source, is_aka, verbose):
     if not os.path.exists(taskdir):
         os.makedirs(taskdir)
     logger = logging.getLogger(name='GEN')
@@ -211,11 +214,12 @@ def gen_main(pls, taskdir, src, douban, source, verbose):
     else:
         logger.error("failed to request douban", extra={'task': 'ptgen'})
 
-    cfg_update(js_dou, js_imdb)
+    cfg_update(js_dou, js_imdb, is_aka)
 
     publish_dir = os.path.join(parent_dir, cfg["pub_dir"])
     if not os.path.exists(publish_dir):
         os.makedirs(publish_dir)
+    print(publish_dir)
     if cover_download_wget(js_dou["poster"], publish_dir):
         logger.info("poster downloaded", extra={'task': 'poster'})
     else:
@@ -411,6 +415,8 @@ def main():
                           help='douban url')
     parser_g.add_argument('--source', type=str, required=True,
                           help='bluray source')
+    parser_g.add_argument('--aka', action='store_true',
+                          help='use aka as film name')
     # subparser [status]
     parser_s = subparsers.add_parser('status', help='check task status')
     parser_s.add_argument('-d', '--taskdir', type=str, default='.', required=True,
@@ -453,8 +459,9 @@ def main():
         douban = args.douban
         source = args.source
         tname  = args.name.replace(" ", ".")
+        is_aka = args.aka
         parent_dir = os.path.join(taskdir, tname)
-        gen_main(pls, parent_dir, src, douban, source, verbose)
+        gen_main(pls, parent_dir, src, douban, source, is_aka, verbose)
     elif (args.subparser_name == "status"):
         os.chdir(taskdir)
         status_main(taskdir)
