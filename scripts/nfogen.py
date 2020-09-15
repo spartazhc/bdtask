@@ -10,7 +10,7 @@ import re
 
 def generate_nfo(ifile, info_dir, source, ofile):
     try:
-        o = subprocess.check_output(f"mediainfo --Output=JSON {ifile}",
+        o = subprocess.check_output(f"mediainfo --Output=JSON \"{ifile}\"",
                                         shell=True).decode("UTF-8")
     except subprocess.CalledProcessError as e:
         print("failed to execute command ", e.output)

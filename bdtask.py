@@ -92,19 +92,19 @@ def extract_cmd(info, playlist, bd_path, odir):
             aud_name = "{}{}.flac".format(aud["language"], i)
             aud_path = os.path.join(odir, aud_name)
             aud_l.append(aud_name)
-            cmd += "-codec flac -compression_level 12 -map a:{} {} ".format(i, aud_path)
+            cmd += f"-codec flac -compression_level 12 -map a:{i} \"{aud_name}\" "
         elif (aud["codec"] == "AC3"):
             aud_name = "{}{}.ac3".format(aud["language"], i)
             aud_path = os.path.join(odir, aud_name)
             aud_l.append(aud_name)
-            cmd += "-codec copy -map a:{} {} ".format(i, aud_path)
+            cmd += f"-codec copy -map a:{i} \"{aud_path}\" "
     for i, sub in enumerate(clip["streams"]["subtitles"]):
         if (sub["codec"] != "HDMV/PGS"):
             break
-        sub_name = "{}{}.sup".format(sub["language"], i)
+        sub_name = f"{sub['language']}{i}.sup"
         sub_path = os.path.join(odir, sub_name)
         sub_l.append(sub_name)
-        cmd += "-codec copy -map s:{} {} ".format(i, sub_path)
+        cmd += f"-codec copy -map s:{i} \"{sub_path}\" "
     cfg["aud"] = aud_l
     cfg["sub"] = sub_l
     if (verbose):
@@ -374,7 +374,7 @@ def mkv_main(is_run, subs):
     mkv = f"{cfg['pub_dir']}/{cfg['fullname']}.mkv"
     hevc = f"components/hevc/crf-{cfg['crf_pick']}-full.hevc"
 
-    cmd = f"mkvmerge -o {mkv} --chapters components/chapters.xml -d 0 {hevc} "
+    cmd = f"mkvmerge -o \"{mkv}\" --chapters components/chapters.xml -d 0 {hevc} "
     for aud in cfg['aud']:
         aud_lang = aud.split('.')[0][:-1]
         cmd += f"-a 0 --language 0:{aud_lang} components/{aud} "
@@ -382,7 +382,7 @@ def mkv_main(is_run, subs):
         sub_lang = sub.split('.')[0][:-1]
         cmd += f"-s 0 --language 0:{sub_lang} components/{sub} "
     while subs and len(subs) > 0:
-        cmd += f"-s 0 --language 0:{subs.pop(0)} --track-name 0:\"{subs.pop(0)}\" {subs.pop(0)} "
+        cmd += f"-s 0 --language 0:\"{subs.pop(0)}\" --track-name 0:\"{subs.pop(0)}\" \"{subs.pop(0)}\" "
     print(cmd)
     # TODO: tee to log
     if (is_run):
