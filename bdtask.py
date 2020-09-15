@@ -364,6 +364,11 @@ def crf_show():
         return
 
 def mkv_main(is_run, subs):
+    logger = logging.getLogger(name='MKV')
+    fileh = logging.FileHandler(f"bdtask.log", 'a')
+    formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
+    fileh.setFormatter(formater)
+    logger.addHandler(fileh)
     with open("config.yaml", 'r') as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     mkv = f"{cfg['pub_dir']}/{cfg['fullname']}.mkv"
@@ -387,13 +392,20 @@ def mkv_main(is_run, subs):
             print("failed to execute command ", e.output)
             raise
         print(o)
+        logger.info("mkv muxed", extra={'task': 'mkv'})
 
 def nfo_main():
+    logger = logging.getLogger(name='NFO')
+    fileh = logging.FileHandler(f"bdtask.log", 'a')
+    formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
+    fileh.setFormatter(formater)
+    logger.addHandler(fileh)
     with open("config.yaml", 'r') as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     mkv = f"{cfg['pub_dir']}/{cfg['fullname']}.mkv"
     nfo = f"{cfg['pub_dir']}/{cfg['fullname']}.nfo"
     generate_nfo(mkv, "info", cfg['source'], nfo)
+    logger.info("nfo generated", extra={'task': 'nfo'})
 
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
