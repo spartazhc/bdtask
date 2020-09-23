@@ -8,6 +8,7 @@ import subprocess
 import logging
 import yaml
 import json
+import re
 import shutil
 import requests
 from distutils.dir_util import copy_tree
@@ -123,9 +124,9 @@ def cfg_update(js_dou, js_imdb, is_aka):
     cfg["pub_dir"] = "{}.{}".format(js_dou["chinese_title"], cfg["fullname"])
     # auto setup crop by aspect ratio
     ratio_str = js_imdb["details"]["Aspect Ratio"]
-    cfg["ratio"] = ratio_str
-    ratio_list = [float(i) for i in ratio_str.split(" : ")]
-    ratio = ratio_list[0] / ratio_list[1]
+    m = re.match(r"(\d+).*(\d+)", ratio_str)
+    cfg["ratio"] = m[0]
+    ratio = float(m[1]) / float(m[2])
     w, h = 1920, 1080
     if (ratio == 1.33): # special case
         w = 1440
