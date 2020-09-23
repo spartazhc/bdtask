@@ -257,7 +257,7 @@ def status_main(dstdir):
     else:
         return
 
-def x265_encode(rcfg, hevc_dir, crf, is_full):
+def x265_encode(rcfg, hevc_dir, crf, pools, is_full):
     vpy = rcfg['vpy']
     qcomp = rcfg['qcomp']
     preset = rcfg['preset']
@@ -284,7 +284,15 @@ def x265_encode(rcfg, hevc_dir, crf, is_full):
         name = os.path.join(hevc_dir, f"crf-{crf}")
     else:
         name = os.path.join(hevc_dir, f"crf-{crf}-full")
-    cmd = f'vspipe {vpy} --y4m - | x265 -D 10 --preset {preset} --crf {crf} --high-tier --ctu {ctu} --rd {rd} ' \
+
+    if (pools == 0):
+        numa_str = f"--pools \"+,-\""
+    elif (pools == 1):
+        numa_str = f"--pools \"-,+\""
+    else:
+        numa_str = f"--pools \"*\""
+
+    cmd = f'vspipe {vpy} --y4m - | x265 -D 10 {numa_str} --preset {preset} --crf {crf} --high-tier --ctu {ctu} --rd {rd} ' \
           f'--subme {subme} --ref {ref} --pmode --no-rect --no-amp --rskip 0 --tu-intra-depth 4 --tu-inter-depth 4 --range limited ' \
           f'--no-open-gop --no-sao --rc-lookahead {rclookahead} --no-cutree --bframes {bframes} --vbv-bufsize {vbvbufsize} --vbv-maxrate {vbvmaxrate} ' \
           f'--colorprim {colorprim} --transfer {transfer} --colormatrix {colormatrix} --deblock {deblock} --ipratio {ipratio} --pbratio {pbratio} --qcomp {qcomp} ' \
@@ -295,7 +303,7 @@ def x265_encode(rcfg, hevc_dir, crf, is_full):
         print("failed to execute command ", e.output)
         raise
 
-def crf_main(crf_list, is_force, is_pick, is_full):
+def crf_main(crf_list, pools, is_force, is_pick, is_full):
     logger = logging.getLogger(name='CRF')
     fileh = logging.FileHandler("bdtask.log", 'a')
     formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
@@ -313,7 +321,7 @@ def crf_main(crf_list, is_force, is_pick, is_full):
 
     if (is_full):
         logger.info(f"crf: {cfg_ori['crf_pick']} will be encoded", extra={'task': 'full'})
-        x265_encode(x265_cfg, "components/hevc", cfg_ori['crf_pick'], True)
+        x265_encode(x265_cfg, "components/hevc", cfg_ori['crf_pick'], pools, True)
         return
 
     # update config.yaml
@@ -344,7 +352,7 @@ def crf_main(crf_list, is_force, is_pick, is_full):
         print(f"crf: {crf_diff} will be tested!")
         logger.info(f"crf: {crf_diff} will be tested", extra={'task': 'crf'})
         for crf in crf_diff:
-            x265_encode(x265_cfg, hevc_dir, crf, False)
+            x265_encode(x265_cfg, hevc_dir, crf, pools, False)
     else:
         print(f"crf: nothing to do! crf value {crf_list} may have be tested already.")
     return
@@ -440,6 +448,8 @@ def main():
                           help='task dir')
     parser_c.add_argument('-c', '--val', type=float, nargs='+',
                           help='crf value to test')
+    parser_c.add_argument('--pools', type=int, default=-1,
+                          help='numa pools to use, only support 2 numa node')
     parser_c.add_argument('--show', action='store_true',
                           help='show crf test results')
     parser_c.add_argument('--force', action='store_true',
@@ -480,6 +490,7 @@ def main():
         status_main(taskdir)
     elif (args.subparser_name == "crf"):
         crf_list = args.val
+        pools     = args.pools
         is_show  = args.show
         is_force = args.force
         is_pick  = args.pick
@@ -487,7 +498,7 @@ def main():
         # chdir will simplify subsequent dir operations
         os.chdir(taskdir)
         if (crf_list or is_full):
-            crf_main(crf_list, is_force, is_pick, is_full)
+            crf_main(crf_list, pools, is_force, is_pick, is_full)
         if (is_show):
             crf_show()
     elif (args.subparser_name == "mkv"):
