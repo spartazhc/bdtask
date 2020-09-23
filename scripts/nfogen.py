@@ -47,9 +47,8 @@ def generate_nfo(ifile, info_dir, source, ofile):
             imdb = json.loads(f.read())
     # print(json.dumps(douban, sort_keys=True, indent=2))
     crf_value = re.match(r".*crf=(\d+\.\d+).*", video['Encoded_Library_Settings'])[1]
-    out = f"""
-{media['@ref'].split('/')[-1]}
-
+    out = \
+f"""{media['@ref'].split('/')[-1]}
 
 NAME..........: {imdb['name']}
 GENRE.........: {imdb['genre'] if isinstance(imdb['genre'], str) else " | ".join(imdb['genre'])}
