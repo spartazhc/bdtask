@@ -124,7 +124,7 @@ def cfg_update(js_dou, js_imdb, is_aka):
     cfg["pub_dir"] = "{}.{}".format(js_dou["chinese_title"], cfg["fullname"])
     # auto setup crop by aspect ratio
     ratio_str = js_imdb["details"]["Aspect Ratio"]
-    m = re.match(r"(\d+).*(\d+)", ratio_str)
+    m = re.match(r"(\d+\.*\d*).*(\d+\.*\d*)", ratio_str)
     cfg["ratio"] = m[0]
     ratio = float(m[1]) / float(m[2])
     w, h = 1920, 1080
