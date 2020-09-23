@@ -133,8 +133,8 @@ def cfg_update(js_dou, js_imdb, is_aka):
         h = 1920 / ratio
     elif ( ratio < 1.77):
         w = 1080 * ratio
-    cw = int((1920 - w) / 2)
-    ch = int((1080 - h) / 2)
+    cw = round((1920 - w) / 4) *2
+    ch = round((1080 - h) / 4) *2
     cfg["crop"] = [cw, cw, ch, ch]
 
     # maybe set them later?
