@@ -45,7 +45,7 @@ def cover_download(url, odir):
 
 def cover_download_wget(url, odir):
     try:
-        subprocess.call(f"wget -O {os.path.join(odir, 'cover.jpg')} {url}", shell=True)
+        subprocess.call(f"wget -O \"{os.path.join(odir, 'cover.jpg')}\" {url}", shell=True)
     except subprocess.CalledProcessError as e:
         print("failed to execute command ", e.output)
         return 0
@@ -78,7 +78,7 @@ def get_chapters(playlist, bd_path, opath):
 
 # TODO: generate cmd to concat those have multiple clips
 def extract_cmd(info, playlist, bd_path, odir):
-    cmd = "ffmpeg -playlist {} -i 'bluray:{}' ".format(playlist, bd_path)
+    cmd = f"ffmpeg -playlist {playlist} -i \"bluray:{bd_path}\" "
     # TODO: deal with condition when there are multiple clips
     if (len(info["clips"]) != 1):
         return
@@ -123,20 +123,24 @@ def cfg_update(js_dou, js_imdb, is_aka):
     cfg["fullname"] = "{}.{}.Bluray.1080p.x265.10bit.FLAC.MNHD-FRDS".format(name, js_imdb["year"])
     cfg["pub_dir"] = "{}.{}".format(js_dou["chinese_title"], cfg["fullname"])
     # auto setup crop by aspect ratio
-    ratio_str = js_imdb["details"]["Aspect Ratio"]
-    m = re.match(r"(\d+\.*\d*).*(\d+\.*\d*)", ratio_str)
-    cfg["ratio"] = m[0]
-    ratio = float(m[1]) / float(m[2])
-    w, h = 1920, 1080
-    if (ratio == 1.33): # special case
-        w = 1440
-    elif (ratio > 1.78):
-        h = 1920 / ratio
-    elif ( ratio < 1.77):
-        w = 1080 * ratio
-    cw = round((1920 - w) / 4) *2
-    ch = round((1080 - h) / 4) *2
-    cfg["crop"] = [cw, cw, ch, ch]
+    if ("Aspect Ratio" in js_imdb["details"].keys()):
+        ratio_str = js_imdb["details"]["Aspect Ratio"]
+        m = re.match(r"(\d+\.*\d*).*(\d+\.*\d*)", ratio_str)
+        cfg["ratio"] = m[0]
+        ratio = float(m[1]) / float(m[2])
+        w, h = 1920, 1080
+        if (ratio == 1.33): # special case
+            w = 1440
+        elif (ratio > 1.78):
+            h = 1920 / ratio
+        elif ( ratio < 1.77):
+            w = 1080 * ratio
+        cw = round((1920 - w) / 4) *2
+        ch = round((1080 - h) / 4) *2
+        cfg["crop"] = [cw, cw, ch, ch]
+    else:
+        cfg["crop"] = [0, 0, 0, 0]
+
 
     # maybe set them later?
     # cfg["full"] = None
