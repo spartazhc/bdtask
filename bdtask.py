@@ -388,6 +388,7 @@ def mkv_main(is_run, subs):
     hevc = f"components/hevc/crf-{cfg['crf_pick']}-full.hevc"
 
     cmd = f"mkvmerge -o \"{mkv}\" --chapters components/chapters.xml -d 0 {hevc} "
+    cmd += f"--attachment-name cover --attach-file {cfg['pub_dir']}/cover.jpg "
     for aud in cfg['aud']:
         aud_lang = aud.split('.')[0][:-1]
         cmd += f"-a 0 --language 0:{aud_lang} components/{aud} "
