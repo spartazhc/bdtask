@@ -298,9 +298,10 @@ def x265_encode(rcfg, hevc_dir, crf, pools, is_full):
 
     cmd = f'vspipe {vpy} --y4m - | x265 -D 10 {numa_str} --preset {preset} --crf {crf} --high-tier --ctu {ctu} --rd {rd} ' \
           f'--subme {subme} --ref {ref} --pmode --no-rect --no-amp --rskip 0 --tu-intra-depth 4 --tu-inter-depth 4 --range limited ' \
-          f'--no-open-gop --no-sao --rc-lookahead {rclookahead} --no-cutree --bframes {bframes} --vbv-bufsize {vbvbufsize} --vbv-maxrate {vbvmaxrate} ' \
+          f'--no-open-gop --no-sao --rc-lookahead {rclookahead} --bframes {bframes} --vbv-bufsize {vbvbufsize} --vbv-maxrate {vbvmaxrate} ' \
           f'--colorprim {colorprim} --transfer {transfer} --colormatrix {colormatrix} --deblock {deblock} --ipratio {ipratio} --pbratio {pbratio} --qcomp {qcomp} ' \
           f'--aq-mode {aqmode} --aq-strength {aqstrength} --psy-rd {psyrd} --psy-rdoq {psyrdoq} --output "{name}.hevc" --y4m - 2>&1 | tee "{name}.log"'
+    print(cmd)
     try:
         subprocess.run(cmd, shell=True)
     except subprocess.CalledProcessError as e:
