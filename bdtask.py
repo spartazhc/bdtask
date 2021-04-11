@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import argparse
 import sys
@@ -18,6 +18,12 @@ template_dir = "/home/spartazhc/source/bdtask/templates/"
 cfg = {}
 verbose = False
 
+fake_ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.106 Safari/537.36'
+
+ptgen_api = 'https://api.rhilip.info/tool/movieinfo/gen'
+# ptgen_api = 'https://api.nas.ink/infogen'
+# ptgen_api = 'https://ptgen.rhilip.info/'
+
 def ptgen_request(url):
     ptgen = "https://api.rhilip.info/tool/movieinfo/gen"
     param = {'url' : url}
@@ -27,21 +33,21 @@ def ptgen_request(url):
     else:
         return r.json()
 
-def cover_download(url, odir):
-    retry = 0
-    while (retry < 5):
-        print(f"downloading poster {url}, try={retry}")
-        r = requests.get(url, stream=True)
-        retry += 1
-        if (r.status_code == 200):
-            break
-    if (r.status_code == 200):
-        with open(os.path.join(odir, "cover.jpg"), 'wb') as fd:
-            for chunk in r.iter_content(1024):
-                fd.write(chunk)
-        return 1
-    else:
-        return 0
+# def cover_download(url, odir):
+#     retry = 0
+#     while (retry < 5):
+#         print(f"downloading poster {url}, try={retry}")
+#         r = requests.get(url, stream=True)
+#         retry += 1
+#         if (r.status_code == 200):
+#             break
+#     if (r.status_code == 200):
+#         with open(os.path.join(odir, "cover.jpg"), 'wb') as fd:
+#             for chunk in r.iter_content(1024):
+#                 fd.write(chunk)
+#         return 1
+#     else:
+#         return 0
 
 def cover_download_wget(url, odir):
     try:
@@ -422,6 +428,299 @@ def nfo_main():
     generate_nfo(mkv, "info", cfg['source'], nfo)
     logger.info("nfo generated", extra={'task': 'nfo'})
 
+
+class BDtaskStopException(Exception):
+    pass
+
+class BDtask:
+
+    params: dict = None
+
+    base_path: str = None
+    cache_path: str = None
+    vs_path: str = None
+    comp_path: str = None
+
+    film_info: dict = None
+
+    task_status: dict = None
+
+    def __init__(self, params):
+        self.params = params
+        self.base_path = os.path.abspath(params.get('taskdir'))
+        self.logger_init()
+
+    def logger_init(self):
+        self.logger = logging.getLogger(name='GEN')
+        fileh = logging.FileHandler(f"{self.base_path}/bdtask.log", 'a')
+        formater = logging.Formatter('%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
+        fileh.setFormatter(formater)
+        self.logger.addHandler(fileh)
+
+    def gen(self):
+        # 获取电影信息 (创建目录)
+        self.get_film_info()
+
+        # 获取蓝光盘信息
+        self.get_bluray_info()
+
+        # 准备 vs 脚本
+        self.gen_vs_scripts()
+
+    def mkdir_task(self):
+        print(self.base_path)
+        if os.path.exists(self.base_path):
+            self.logger.fatal('task_dir already exists, please check!',extra={'task': 'mkdir'})
+            sys.exit()
+        else:
+            self.cache_path = os.path.join(self.base_path, 'cache')
+            self.vs_path = os.path.join(self.base_path, 'vs')
+            self.comp_path = os.path.join(self.base_path, 'comp')
+            os.makedirs(self.base_path)
+            os.makedirs(self.cache_path)
+            os.makedirs(self.vs_path)
+            os.makedirs(self.comp_path)
+
+    def get_film_info(self) -> dict:
+        ori_name = os.path.basename(self.params['src'])
+        # 1. get film's standard name from its file name
+        self.film_info = self.get_bluray_name(ori_name)
+        # update base_path using film name
+        self.base_path = os.path.join(self.base_path, self.film_info.get('name'))
+        self.mkdir_task()
+        # 2. search info
+        self.search_info_from_douban_and_ptgen()
+        # 3. update using information on step 2
+        # self.update_cfg()
+        return self.film_info
+
+    def get_bluray_info(self) -> dict:
+        bd_info = {}
+        bd_info['bdinfo'] = self.call_bdinfo()
+        self.get_chapters(self.params['playlist'])
+        # TODO: CC enhancement
+
+    @staticmethod
+    def get_bluray_name(vf):
+        """
+        get info from file name
+        ret = {'name': name, 'year': year, 'reso': reso, 'cut': cut}
+        """
+        country_codes = ["BFI", "CEE", "CAN", "CHN", "ESP", "EUR", "FRA", "GBR", "GER", "HKG", "IND", "ITA", "JPN", "KOR", "NOR", "NLD", "POL", "RUS", "TWN", "USA"]
+        cut_types = { 'cc': 'CC', 'criterion': 'CC', 'director': 'Directors Cut', 'extended': 'Extended Cut', 'uncut': 'UNCUT', 'remastered': 'Remastered', 'repack': 'Repack', 'uncensored': 'Uncensored', 'unrated': 'Unrated'}
+
+        vf_en = re.sub("[\u4E00-\u9FA5]+.*[\u4E00-\u9FA5]+.*?\.", "", os.path.basename(vf))
+        # print(vf_en)
+        m = re.match(r"\.?([\w,.'!?&\s-]+)[\s|.]+(\d{4}).*((?:720|1080|2160)[pP]).*", vf_en)
+        cut = ""
+        country = ""
+        # check FIFA country code
+        for code in country_codes:
+            if code in vf_en:
+                country = code
+                break
+        vf_en_lower = vf_en.lower()
+        for key, val in cut_types.items():
+            if key in vf_en_lower:
+                cut = val
+                break
+        # Normally, there should be either country or cut
+        cut = country + cut
+        if m is None:
+            # sometimes there is no resolution in filename, maybe the uploader missed it
+            m = re.match(r"([\w,.'!?&-]+).(\d{4})+.*", vf_en)
+            if m is None:
+                print(f"vf_en: {vf_en}, fail in regex match")
+                return
+            name, year, reso = m[1], m[2], "1080p"
+            if "AKA" in m[1]:
+                try:
+                    name = re.match(r"([\w,.'!?&-]+)\.AKA.*", m[1])[1]
+                except TypeError:
+                    print(f"vf_en: {vf_en}, fail in AKA regex match")
+            # fname = f"{name.replace('.', ' ')} ({year}) - [{cut if cut else reso}].{suffix}"
+        else:
+            name, year, reso = m[1], m[2], m[3].lower()
+            if "AKA" in m[1]:
+                try:
+                    name = re.match(r"([\w,.'!?&-]+)\.AKA.*", m[1])[1]
+                except TypeError:
+                    print(f"vf_en: {vf_en}, fail in AKA2 regex match")
+            # fname = f"{name.replace('.', ' ')} ({year}) - [{cut if cut else reso}].{suffix}"
+        name = name.replace('.', ' ')
+        ret = {'name': name, 'year': year, 'reso': reso, 'cut': cut}
+        print( f'filename parsed:{name}, {year}, {reso}, {cut}')
+
+        return ret
+
+    def search_info_from_douban_and_ptgen(self) -> dict:
+        """
+        1. search on douban to get douban_id
+        2. search douban_url / imdb_url on PT-GEN
+        3. get return and save
+        """
+        douban_search_title = self.film_info.get('name')
+
+        # 通过豆瓣API获取到豆瓣链接
+        self.logger.info('使用关键词 %s 在豆瓣搜索', douban_search_title, extra={'task': 'douban'})
+        try:
+            r = requests.get('https://movie.douban.com/j/subject_suggest',
+                             params={'q': douban_search_title},
+                             headers={'User-Agent': fake_ua})
+            rj = r.json()
+            ret: dict = rj[0]  # 基本上第一个就是我们需要的233333
+        except Exception as e:
+            raise BDtaskStopException('豆瓣未返回正常结果，报错如下 %s' % (e,))
+
+        self.logger.info('获得到豆瓣信息, 片名: %s , 豆瓣链接: %s', ret.get('title'), ret.get('url'), extra={'task': 'douban'})
+
+        # 通过Pt-GEN接口获取详细简介
+        douban_url = f"https://movie.douban.com/subject/{ret.get('id')}/"
+        self.logger.info('通过Pt-GEN 获取资源 %s 详细简介', douban_url, extra={'task': 'ptgen'})
+
+        rdouban = requests.get(ptgen_api, params={'url': douban_url}, headers={'User-Agent': fake_ua})
+        rjdouban = rdouban.json()
+        if rjdouban.get('success', False):
+            with open(os.path.join(self.cache_path, "ptgen.txt"), "wt") as fd:
+                fd.write(rjdouban["format"])
+            with open(os.path.join(self.cache_path, "douban.json"), "wt") as fd:
+                fd.write(json.dumps(rjdouban, indent = 2))
+            # request imdb
+            rimdb = requests.get(ptgen_api, params={'url': rjdouban['imdb_link']}, headers={'User-Agent': fake_ua})
+            rjimdb = rimdb.json()
+            if rjimdb.get('success', False):
+                with open(os.path.join(self.cache_path, "imdb.json"), "wt") as fd:
+                    fd.write(json.dumps(rjimdb, indent = 2))
+            else:  # Pt-GEN接口返回错误
+                raise BDtaskStopException('Pt-GEN-imdb 返回错误，错误原因 %s' % (rjimdb.get('error', '')))
+        else:  # Pt-GEN接口返回错误
+            raise BDtaskStopException('Pt-GEN 返回错误，错误原因 %s' % (rjdouban.get('error', '')))
+
+        self.jdouban = rjdouban
+        self.jimdb = rjimdb
+
+    def call_bdinfo(self) -> dict:
+        """
+        call bdinfo to retrive bdinfo, write it to bdinfo.yaml
+        # @return info in dict
+        """
+        try:
+            o = subprocess.check_output(f"bdinfo -i -p1 \"{self.params['src']}\"",
+                                            shell=True).decode("UTF-8")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
+        with open(os.path.join(self.cache_path, "bdinfo.yaml"), "wt") as fd:
+            fd.write(o)
+
+        info = yaml.load(o.replace("]", " "), Loader=yaml.BaseLoader)
+        return info
+
+    def get_chapters(self, playlist):
+        try:
+            o = subprocess.check_output(f"bdinfo -cp {playlist} \"{self.params['src']}\"", # > \"{opath}/chapters.xml\"",
+                                            shell=True).decode("UTF-8")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
+        with open(os.path.join(self.comp_path, "chapter.xml"), "wt") as fd:
+            fd.write(o)
+
+    def gen_vs_scripts(self):
+        cw = ch = 0
+        if ("Aspect Ratio" in self.jimdb["details"].keys()):
+            ratio_str = self.jimdb["details"]["Aspect Ratio"]
+            m = re.match(r"(\d+\.*\d*).*(\d+\.*\d*)", ratio_str)
+            ratio = float(m[1]) / float(m[2])
+            w, h = 1920, 1080
+            if (ratio == 1.33): # special case
+                w = 1440
+            elif (ratio > 1.78):
+                h = 1920 / ratio
+            elif ( ratio < 1.77):
+                w = 1080 * ratio
+            cw = round((1920 - w) / 4) *2
+            ch = round((1080 - h) / 4) *2
+        script = f"""
+import vapoursynth as vs
+import fvsfunc as fvf
+import awsmfunc as awf
+from vsutil import depth as Depth
+
+core = vs.get_core()
+
+mpls = core.mpls.Read(r'{self.params['src']}', {self.params['playlist']})
+clips = []
+for i in range(mpls['count']):
+    clips.append(core.lsmas.LWLibavSource(source=mpls['clip'][i], cache = True,
+                    cachefile=f"{self.vs_path}/cache_{{i}}.lwi"))
+clip = core.std.Splice(clips)
+
+crop=core.std.Crop(clip, {cw}, {cw}, {ch}, {ch})
+
+#bb = awf.FixRowBrightnessProtect2(bb, 1079, -4)
+#bb = awf.FixColumnBrightnessProtect2(bb, 1, -8)
+#fb = core.fb.FillBorders(crop,left=1,right=1,bottom=0,mode="fillmargins")
+#fb = awf.bbmod(fb, left=2, right=2, u=True, v=True, blur=20, thresh=[5000, 1000])
+
+last = crop
+select = core.std.SelectEvery(last[2000:-2000],cycle=2500, offsets=range(100))
+ret = core.std.AssumeFPS(select, fpsnum=clip.fps.numerator, fpsden=clip.fps.denominator)
+ret.set_output()
+        """
+        ipynb = """
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%load_ext yuuno"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%%vspreview\n",
+    "%execvpy sample.vpy"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.8.5"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
+"""
+        with open(os.path.join(self.vs_path, "sample.vpy"), 'w') as fd:
+            fd.write(script)
+        with open(os.path.join(self.vs_path, "check.ipynb"), 'w') as fd:
+            fd.write(ipynb)
+
+
+
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
                 description='bdtask is a script to generate and manage bluray encode tasks')
@@ -438,9 +737,9 @@ def main():
                           help='bluray disc path')
     parser_g.add_argument('-d', '--taskdir', type=str, default='.',
                           help='output destination dir')
-    parser_g.add_argument('--douban', type=str, required=True,
+    parser_g.add_argument('--douban', type=str, #required=True,
                           help='douban url')
-    parser_g.add_argument('--source', type=str, required=True,
+    parser_g.add_argument('--source', type=str, #required=True,
                           help='bluray source')
     parser_g.add_argument('--aka', action='store_true',
                           help='use aka as film name')
@@ -477,20 +776,25 @@ def main():
 
 
     args = parser.parse_args()
+    params = vars(args)
+
     verbose = args.verbose
     taskdir = args.taskdir
 
     logging.basicConfig(format='%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s',
                         level=logging.INFO)
     if (args.subparser_name == "gen"):
-        pls    = args.playlist
-        src    = args.src
-        douban = args.douban
-        source = args.source
-        tname  = args.name.replace(" ", ".")
-        is_aka = args.aka
-        parent_dir = os.path.join(taskdir, tname)
-        gen_main(pls, parent_dir, src, douban, source, is_aka, verbose)
+        bdtask = BDtask(params)
+        bdtask.gen()
+
+        # pls    = args.playlist
+        # src    = args.src
+        # douban = args.douban
+        # source = args.source
+        # tname  = args.name.replace(" ", ".")
+        # is_aka = args.aka
+        # parent_dir = os.path.join(taskdir, tname)
+        # gen_main(pls, parent_dir, src, douban, source, is_aka, verbose)
     elif (args.subparser_name == "status"):
         os.chdir(taskdir)
         status_main(taskdir)
