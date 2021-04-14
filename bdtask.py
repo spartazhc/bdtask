@@ -244,10 +244,11 @@ class FilmTask(TaskBase):
 
     def logger_init(self, logger_name):
         self.logger = logging.getLogger(name=logger_name)
-        fileh = logging.FileHandler(f"{self.base_path}/bdtask.log", 'a')
+        fileh = logging.FileHandler(os.path.join(self.base_path, 'bdtask.log'), 'a')
         formater = logging.Formatter(
             '%(asctime)-15s %(name)-3s %(levelname)s %(message)s')
         fileh.setFormatter(formater)
+        self.logger.addHandler(fileh)
 
     @staticmethod
     def get_bluray_name(vf):
