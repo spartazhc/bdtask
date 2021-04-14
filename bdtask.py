@@ -6,13 +6,12 @@ import os
 import subprocess
 import logging
 import yaml
-import yamlordereddictloader
 import json
 import re
 import requests
 from scripts.nfogen import generate_nfo
 from titlecase import titlecase
-# import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET
 
 template_dir = "/home/spartazhc/source/bdtask/templates/"
 cfg = {}
@@ -43,44 +42,6 @@ def cover_download_wget(url, odir):
         print("failed to execute command ", e.output)
         return 0
     return 1
-
-
-def extract_cmd(info, playlist, bd_path, odir):
-    cmd = f"ffmpeg -playlist {playlist} -i \"bluray:{bd_path}\" "
-    # TODO: deal with condition when there are multiple clips
-    if (len(info["clips"]) != 1):
-        return
-
-    clip = info["clips"][0]
-    cfg["m2ts"] = os.path.join(bd_path, "BDMV", "STREAM", clip["name"])
-    aud_l = []
-    sub_l = []
-    # there should be only one video stream
-    for i, aud in enumerate(clip["streams"]["audio"]):
-        if (aud["codec"] == "PCM"):
-            aud_name = "{}{}.flac".format(aud["language"], i)
-            aud_path = os.path.join(odir, aud_name)
-            aud_l.append(aud_name)
-            cmd += f"-codec flac -compression_level 12 -map a:{i} \"{aud_name}\" "
-        elif (aud["codec"] == "AC3"):
-            aud_name = "{}{}.ac3".format(aud["language"], i)
-            aud_path = os.path.join(odir, aud_name)
-            aud_l.append(aud_name)
-            cmd += f"-codec copy -map a:{i} \"{aud_path}\" "
-    for i, sub in enumerate(clip["streams"]["subtitles"]):
-        if (sub["codec"] != "HDMV/PGS"):
-            break
-        sub_name = f"{sub['language']}{i}.sup"
-        sub_path = os.path.join(odir, sub_name)
-        sub_l.append(sub_name)
-        cmd += f"-codec copy -map s:{i} \"{sub_path}\" "
-    cfg["aud"] = aud_l
-    cfg["sub"] = sub_l
-    if (verbose):
-        print(cmd)
-    with open(os.path.join(odir, "extract.sh"), "wt") as fd:
-        fd.write(cmd)
-
 
 def status_main(dstdir):
     if (os.path.isfile("tasklog.yaml")):
@@ -257,6 +218,7 @@ class FilmTask(TaskBase):
         self.playlist = 1
         self.bdinfo = None
         self.film_info: dict = None
+        self.task_dict: dict = {}
         self.supplements: list = []
         self.get_path()
         self.logger_init(params.get('subparser_name').upper())
@@ -265,11 +227,11 @@ class FilmTask(TaskBase):
         if self.params.get('subparser_name') == 'gen':
             self.film_info = self.get_bluray_name(
                 os.path.basename(self.bd_path))
-            self.base_path = os.path.join(os.path.abspath(
-                self.params.get('taskdir')), self.film_info.get('name'))
-        else:
             self.base_path = os.path.join(
-                os.path.abspath(self.params.get('taskdir')))
+                os.path.abspath(self.params.get('taskdir')),
+                self.film_info.get('name').replace(' ', '.'))
+        else:
+            self.base_path = os.path.abspath(self.params.get('taskdir'))
         self.cache_path = os.path.join(self.base_path, 'cache')
         self.vs_path = os.path.join(self.base_path, 'vs')
         self.comp_path = os.path.join(self.base_path, 'comp')
@@ -354,11 +316,40 @@ class FilmTask(TaskBase):
             self.call_bdinfo()
             self.write_cache()
             self.gen_vs_scripts()
-        self.add_supplement()
+        self.bluray_enhance()
+        # post process
+        if self.params.get('vscache'):
+            self.logger.info("call vspipe --info to generate cache.lwi")
+            try:
+                o = subprocess.check_output(f"vspipe -i {os.path.join(self.vs_path, 'sample.vpy')} -",
+                                            shell=True).decode("UTF-8")
+            except subprocess.CalledProcessError as e:
+                print("failed to execute command ", e.output)
+                raise
+        if self.params.get('extract'):
+            self.extract_components()
+
         self.export_task()
+        # if self.params.get('autocrf'):
+        #     self.autocrf()
 
     def run_crf(self):
         self.logger.info("run crf")
+        hevc_dir = os.path.join(self.comp_path, "hevc")
+        if self.params.get('show'):
+            if (not os.path.exists(hevc_dir)):
+                self.logger.warning("no crf log to show, return")
+                return
+            else:
+                self.logger.info("show crf")
+                try:
+                    o = subprocess.check_output(f"grep encoded {hevc_dir}/*.log ",
+                                                shell=True).decode("UTF-8")
+                except subprocess.CalledProcessError as e:
+                    print("failed to execute command ", e.output)
+                    raise
+                print(o)
+                return
         # load x265_setting from config.yaml
         task_path = os.path.join(self.base_path, "task.yaml")
         if (not os.path.isfile(task_path)):
@@ -389,17 +380,16 @@ class FilmTask(TaskBase):
             crf_diff = crf_list
             cfg_update["crf"] = crf_list
         else:
-            crf_diff = [crf for crf in crf_list if crf not in cfg_ori["crf"]]
+            crf_diff = [crf for crf in crf_list if str(crf) not in cfg_ori["crf"]]
             cfg_update["crf"].extend(crf_diff)
             if (self.params.get('force')):
                 crf_diff = crf_list
 
-        with open("config.yaml", "w+") as fd:
+        with open(task_path, "w+") as fd:
             yaml.dump(cfg_update, fd, sort_keys=False)
             if (self.params.get('pick')):
                 return
 
-        hevc_dir = os.path.join(self.comp_path, "hevc")
         if not os.path.exists(hevc_dir):
             os.makedirs(hevc_dir)
 
@@ -414,7 +404,15 @@ class FilmTask(TaskBase):
 
     def x265_encode(self, crf, isfull):
         cfg = self.task_dict.get('x265')
-
+        try:
+            o = subprocess.check_output(f"vspipe -i {os.path.join(self.vs_path, 'sample.py')} -",
+                                        shell=True).decode("UTF-8")
+            m = re.search(r"Frames:\s+(\d+)", o)
+            frames = m[1] if m else 0
+            print(f"frames={frames}")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
         # if (pools == 0):
         #     numa_str = f"--pools \"+,-\""
         # elif (pools == 1):
@@ -422,9 +420,10 @@ class FilmTask(TaskBase):
         # else:
         #     numa_str = f"--pools \"*\""
         default_cfg = {
-            'vpy': os.path.join(self.vs_path, "sample.vpy"),
+            'vpy': os.path.join(self.vs_path, "sample.py"),
             'name': os.path.join(self.comp_path, f"hevc/crf-{crf}{'-full' if isfull else ''}"),
             'crf': crf,
+            'frames': m[1] if m else 0,
             'qcomp': 0.6,
             'preset': "veryslow",
             'bframes': 16,
@@ -450,7 +449,7 @@ class FilmTask(TaskBase):
         if cfg != 'null':
             default_cfg.update(cfg)
 
-        cmd = 'vspipe \"{vpy}\" --y4m - | x265 -D 10 --preset {preset} --crf {crf} --high-tier --ctu {ctu} --rd {rd} ' \
+        cmd = 'vspipe \"{vpy}\" --y4m - | x265 -D 10 --frames {frames} --preset {preset} --crf {crf} --high-tier --ctu {ctu} --rd {rd} ' \
             '--subme {subme} --ref {ref} --pmode --no-rect --no-amp --rskip 0 --tu-intra-depth 4 --tu-inter-depth 4 --range limited ' \
             '--no-open-gop --no-sao --rc-lookahead {rc-lookahead} --bframes {bframes} --b-adapt {b-adapt} --vbv-bufsize {vbv-bufsize} --vbv-maxrate {vbv-maxrate} ' \
             '--colorprim {colorprim} --transfer {transfer} --colormatrix {colormatrix} --deblock {deblock} --ipratio {ipratio} --pbratio {pbratio} --qcomp {qcomp} ' \
@@ -461,6 +460,52 @@ class FilmTask(TaskBase):
             subprocess.run(cmd, shell=True)
         except subprocess.CalledProcessError as e:
             raise FilmTaskStopException(f"fail to encode, {e}")
+
+    def extract_components(self):
+        cmd = f"ffmpeg -hide_banner -playlist {self.playlist} -i \"bluray:{self.bd_path}\" "
+        # TODO: deal with condition when there are multiple clips
+        if (len(self.bdinfo['clips']) != 1):
+            self.logger.error("bdinfo shows more than one clip, please update this function")
+            return
+
+        clip = self.bdinfo['clips'][0]
+        auds = []
+        subs = []
+        # there should be only one video stream
+        for i, aud in enumerate(clip['streams']['audio']):
+            if aud['codec'] == "PCM":
+                if aud['channels'] != 'Mono':
+                    self.logger.warning("audio is not Mono, check!")
+                aud_name = f"{aud['language']}{i}.flac"
+                aud_path = os.path.join(self.comp_path, aud_name)
+                auds.append(aud_name)
+                cmd += f"-codec flac -compression_level 12 -map 0:i:{aud['pid']} \"{aud_path}\" "
+            elif (aud['codec'] == "AC3"):
+                aud_name = f"{aud['language']}{i}.ac3"
+                aud_path = os.path.join(self.comp_path, aud_name)
+                subs.append(aud_name)
+                cmd += f"-codec copy -map 0:i:{aud['pid']} \"{aud_path}\" "
+            else:
+                self.logger.error(f"please support more audio codec {aud['codec']}")
+        for i, sub in enumerate(clip['streams']['subtitles']):
+            if (sub['codec'] != "HDMV/PGS"):
+                self.logger.error(f"please support more subtitle codec {sub['codec']}")
+                break
+            sub_name = f"{sub['language']}{i}.sup"
+            sub_path = os.path.join(self.comp_path, sub_name)
+            subs.append(sub_name)
+            cmd += f"-codec copy -map 0:i:{sub['pid']} \"{sub_path}\" "
+        self.task_dict['auds'] = auds
+        self.task_dict['subs'] = subs
+
+        cmd += f" 2>&1 | tee {os.path.join(self.comp_path, extract.log)}"
+        with open(os.path.join(self.cache_path, "extract.sh"), "wt") as fd:
+            fd.write(cmd)
+        try:
+            self.logger.info("call extract.sh to extract components")
+            subprocess.run(cmd, shell=True)
+        except subprocess.CalledProcessError as e:
+            raise FilmTaskStopException(f"fail to extract, {e}")
 
     def check_cache(self):
         ret = False
@@ -480,35 +525,47 @@ class FilmTask(TaskBase):
             with open(bdinfo_path, 'r') as fd:
                 txt = fd.read()
                 self.bdinfo = yaml.load(txt.replace(
-                    "]", " "), Loader=yamlordereddictloader.Loader)
+                    "]", " "), Loader=yaml.BaseLoader)
+        if ret:
+            self.logger.info("use cache")
         return ret
 
     def parse_bdinfo(self):
         pass
 
     def export_task(self):
-        main_info = {}
-        main_info['name'] = self.jdouban.get('foreign_title')
-        main_info['playlist'] = self.playlist
-        main_info['type'] = 'main'
-        main_info['bd_path'] = self.bd_path
-        main_info['stream'] = self.bdinfo['clips'][0]['streams']
+        self.task_dict['name'] = self.jdouban.get('foreign_title')
+        self.task_dict['playlist'] = self.playlist
+        self.task_dict['type'] = 'main'
+        self.task_dict['bd_path'] = self.bd_path
+        self.task_dict['stream'] = self.bdinfo['clips'][0]['streams']
         # stream = self.bdinfo['clips'][0]['streams']
-        # main_info['video'] = stream['video']
-        # main_info['audio'] = stream['audio']
-        # main_info['subs'] = stream['subtitles']
-        main_info['x265'] = None  # TODO
-        self.task_dict = main_info
-
-        info = []
-        for sup in self.supplements:
-            info += sup.export_task()
+        self.task_dict['x265'] = None  # TODO
+        cw = ch = 0
+        if ("Aspect Ratio" in self.jimdb["details"].keys()):
+            ratio_str = self.jimdb["details"]["Aspect Ratio"]
+            m = re.match(r"(\d+\.*\d*).*(\d+\.*\d*)", ratio_str)
+            ratio = float(m[1]) / float(m[2])
+            w, h = 1920, 1080
+            if (ratio == 1.33):  # special case
+                w = 1440
+            elif (ratio > 1.78):
+                h = 1920 / ratio
+            elif (ratio < 1.77):
+                w = 1080 * ratio
+            cw = round((1920 - w) / 4) * 2
+            ch = round((1080 - h) / 4) * 2
+            self.task_dict['crop'] = [cw, cw, ch, ch]
 
         with open(os.path.join(self.base_path, "task.yaml"), "wt") as fd:
-            yaml.dump(main_info, fd, Dumper=yamlordereddictloader.Dumper)
-        with open(os.path.join(self.base_path, "supplements.yaml"), "wt") as fd:
-            yaml.dump_all(info, fd, explicit_start=True,
-                          Dumper=yamlordereddictloader.Dumper)
+            yaml.dump(self.task_dict, fd, sort_keys=False)
+
+        if self.supplements:
+            info = []
+            for sup in self.supplements:
+                info += sup.export_task()
+            with open(os.path.join(self.base_path, "supplements.yaml"), "wt") as fd:
+                yaml.dump_all(info, fd, explicit_start=True, sort_keys=False)
 
     def search_info_from_douban_and_ptgen(self):
         """
@@ -557,7 +614,8 @@ class FilmTask(TaskBase):
         # self.logger.info('mkdir of task')
         if os.path.exists(self.base_path):
             # self.logger.fatal('task_dir already exists, please check!')
-            sys.exit()
+            print('task_dir already exists, please check!')
+            # sys.exit()
         else:
             os.makedirs(self.base_path)
             os.makedirs(self.cache_path)
@@ -572,39 +630,30 @@ class FilmTask(TaskBase):
         with open(os.path.join(self.cache_path, "imdb.json"), "wt") as fd:
             fd.write(json.dumps(self.jimdb, indent=2))
         with open(os.path.join(self.cache_path, "bdinfo.yaml"), "wt") as fd:
-            yaml.dump(self.bdinfo, fd, Dumper=yamlordereddictloader.Dumper)
+            yaml.dump(self.bdinfo, fd,sort_keys=False)
 
     def gen_vs_scripts(self):
-        cw = ch = 0
-        if ("Aspect Ratio" in self.jimdb["details"].keys()):
-            ratio_str = self.jimdb["details"]["Aspect Ratio"]
-            m = re.match(r"(\d+\.*\d*).*(\d+\.*\d*)", ratio_str)
-            ratio = float(m[1]) / float(m[2])
-            w, h = 1920, 1080
-            if (ratio == 1.33):  # special case
-                w = 1440
-            elif (ratio > 1.78):
-                h = 1920 / ratio
-            elif (ratio < 1.77):
-                w = 1080 * ratio
-            cw = round((1920 - w) / 4) * 2
-            ch = round((1080 - h) / 4) * 2
+        self.logger.info('generate vapoursynth scripts')
         script = f"""
 import vapoursynth as vs
 import fvsfunc as fvf
 import awsmfunc as awf
+import yaml
 from vsutil import depth as Depth
 
 core = vs.get_core()
+with open('../task.yaml', 'r') as f:
+    cfg = yaml.load(f, Loader=yaml.FullLoader)
 
-mpls = core.mpls.Read(r'{self.bd_path}', {self.playlist})
+mpls = core.mpls.Read(cfg['bd_path'], cfg['playlist'])
 clips = []
 for i in range(mpls['count']):
     clips.append(core.lsmas.LWLibavSource(source=mpls['clip'][i], cache = True,
                     cachefile=f"{self.vs_path}/cache_{{i}}.lwi"))
-clip = core.std.Splice(clips)
+src = core.std.Splice(clips)
 
-crop=core.std.Crop(clip, {cw}, {cw}, {ch}, {ch})
+ccrop = cfg['crop']
+crop=core.std.Crop(src, ccrop[0], ccrop[1], ccrop[2], ccrop[3])
 
 # bb = awf.FixRowBrightnessProtect2(bb, 1079, -4)
 # bb = awf.FixColumnBrightnessProtect2(bb, 1, -8)
@@ -612,12 +661,14 @@ crop=core.std.Crop(clip, {cw}, {cw}, {ch}, {ch})
 # fb = awf.bbmod(fb, left=2, right=2, u=True, v=True, blur=20, thresh=[5000, 1000])
 
 last = crop
-select = core.std.SelectEvery(last[2000:-2000],cycle=2500, offsets=range(100))
-ret = core.std.AssumeFPS(
-    select, fpsnum=clip.fps.numerator, fpsden=clip.fps.denominator)
-ret.set_output()
+if cfg.get('vs_cycle') > 0:
+    select = core.std.SelectEvery(last[2000:-2000],cycle=2500, offsets=range(100))
+    ret = core.std.AssumeFPS(select, fpsnum=src.fps.numerator, fpsden=src.fps.denominator)
+    ret.set_output()
+else:
+    last.set_output()
 """
-        ipynb = """
+        ipynb = r"""
 {
  "cells": [
   {
@@ -635,8 +686,18 @@ ret.set_output()
    "metadata": {},
    "outputs": [],
    "source": [
-    "%%vspreview
-    "%execvpy sample.vpy"
+    "%%vspreview\n",
+    "import yaml\n",
+    "\n",
+    "with open('../task.yaml', 'r+') as fd:\n",
+    "    cfg = yaml.load(fd, Loader=yaml.FullLoader)\n",
+    "    print('last crop value: ', cfg['crop'])\n",
+    "# with open('../task.yaml', 'wt') as fd:\n",
+    "#     cfg['crop'] = [232, 232, 0, 0]\n",
+    "#     print('current crop value: ', cfg['crop'])\n",
+    "#     yaml.dump(cfg, fd, sort_keys=False)\n",
+    "    \n",
+    "%execvpy sample.py"
    ]
   }
  ],
@@ -663,14 +724,15 @@ ret.set_output()
  "nbformat_minor": 4
 }
 """
-        with open(os.path.join(self.vs_path, "sample.vpy"), 'w') as fd:
+        with open(os.path.join(self.vs_path, "sample.py"), 'w') as fd:
             fd.write(script)
         with open(os.path.join(self.vs_path, "check.ipynb"), 'w') as fd:
             fd.write(ipynb)
 
     def get_chapters(self):
         try:
-            o = subprocess.check_output(f"bdinfo -cp {self.playlist} \"{self.bd_path}\"",  # > \"{opath}/chapters.xml\"",
+            o = subprocess.check_output(f"bdinfo -cp {self.playlist} \"{self.bd_path}\""
+                                f" > \"{os.path.join(self.cache_path, 'chapter.xml')}\"",
                                         shell=True).decode("UTF-8")
         except subprocess.CalledProcessError as e:
             print("failed to execute command ", e.output)
@@ -687,7 +749,7 @@ ret.set_output()
             print("failed to execute command ", e.output)
             raise
         return yaml.load_all(o.replace("]", " "),
-                             Loader=yamlordereddictloader.Loader)
+                             Loader=yaml.BaseLoader)
 
     def call_bdinfo(self):
         """
@@ -700,9 +762,9 @@ ret.set_output()
             print("failed to execute command ", e.output)
             raise
         self.bdinfo = yaml.load(o.replace("]", " "),
-                                Loader=yamlordereddictloader.Loader)
+                                Loader=yaml.BaseLoader)
 
-    def add_supplement(self):
+    def bluray_enhance(self):
         self.logger.info('try to add supplements')
         try:
             with open(os.path.join(self.bd_path, "BDMV/JAR/00001/eng_us.txt"), 'r') as fd:
@@ -737,7 +799,7 @@ ret.set_output()
         lines = []
         last_parent = None
         # i = 0
-        for m in re.finditer("\\d+=([0-9A-Za-z,;()\n'\"\\s.?!]+)\n", bdtxt):
+        for m in re.finditer("\\d+=([0-9A-Za-z,:;()\n'\"\\s.?!]+)\n", bdtxt):
             if m[1]:  # and m[1] != 'PLAY':
                 lines.append(m[1].replace('\n', ' ').strip())
                 # print(i, m[1].replace('\n', ' ').strip())
@@ -804,7 +866,20 @@ ret.set_output()
         # for sup in self.supplements:
         #     print(sup)
         #     print('-----------')
+        self.enhance_chapter(chapter_txt)
 
+    def enhance_chapter(self, chapter_txt):
+        tree = ET.parse(os.path.join(self.cache_path, 'chapter.xml'))
+        root = tree.getroot()
+        EditionEntry = root[0]
+        for chap in EditionEntry.iterfind('ChapterAtom'):
+            lang = ET.Element('ChapterDisplay')
+            sub = ET.SubElement(lang, 'ChapString')
+            sub.text = chapter_txt.pop(0)
+            sub = ET.SubElement(lang, 'ChapLanguage')
+            sub.text = "eng"
+            chap.append(lang)
+        tree.write(os.path.join(self.comp_path, 'chapter.xml'))
 
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
@@ -828,8 +903,10 @@ def main():
                           help='douban url')
     parser_g.add_argument('--source', type=str,  # required=True,
                           help='bluray source')
-    parser_g.add_argument('--aka', action='store_true',
-                          help='use aka as film name')
+    parser_g.add_argument('--vscache', action='store_true', default=False,
+                          help='call vspipe -i after GEN')
+    parser_g.add_argument('--extract', action='store_true', default=False,
+                          help='execute extract.sh after GEN')
     # subparser [status]
     parser_s = subparsers.add_parser('status', help='check task status')
     parser_s.add_argument('-d', '--taskdir', type=str, default='.', required=True,
@@ -883,8 +960,6 @@ def main():
     elif (args.subparser_name == "crf"):
         bdtask = FilmTask(params)
         bdtask.run_crf()
-        # if (is_show):
-        #     crf_show()
     elif (args.subparser_name == "mkv"):
         is_run = args.run
         subs = args.sub
