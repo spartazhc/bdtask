@@ -9,6 +9,8 @@ import yaml
 import json
 import re
 import requests
+import langcodes
+import time
 from scripts.nfogen import generate_nfo
 from titlecase import titlecase
 import xml.etree.ElementTree as ET
@@ -295,7 +297,7 @@ class FilmTask(TaskBase):
             self.gen_vs_scripts()
             self.extract_components()
             self.publish_info()
-        self.bluray_enhance()
+            self.bluray_enhance()
 
         self.export_task()
         # post process
@@ -425,6 +427,72 @@ class FilmTask(TaskBase):
                 raise
             print(o)
 
+    def run_nfo(self):
+        self.logger.info("generate nfo")
+        self.check_cache()
+        publish_dir = os.path.join(self.base_path, self.task_dict.get('publish'))
+        mkv = os.path.join(publish_dir,
+                           '.'.join(self.task_dict.get('publish').split('.')[1:]) + '.mkv')
+        try:
+            o = subprocess.check_output(f"mediainfo --Output=JSON \"{mkv}\"",
+                                            shell=True).decode("UTF-8")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
+        mkvinfo = json.loads(o)
+        media = mkvinfo['media']
+        general = media['track'][0]
+        video = media['track'][1]
+
+        s_aud = ""
+        s_sub = ""
+        for _, trak in enumerate(media['track'], start=2):
+            if trak['@type'] == 'Audio':
+                s_aud += f"AUDiO {'1' if not '@typeorder' in trak.keys() else trak['@typeorder']}.......: {langcodes.Language.get(trak['Language']).display_name():<7} " \
+                    f"{trak['Format']:>4} @ {int(trak['BitRate']) / 1000 :.0f} Kbps\n"
+            elif trak['@type'] == 'Text':
+                if 'Title' in trak.keys():
+                    if trak['Title'].startswith("Tra"):
+                        sub_la = "cht"
+                    elif trak['Title'].startswith("Simp"):
+                        sub_la = "chs"
+                    elif trak['Title'].startswith("chs&"):
+                        sub_la = trak['Title']
+                else:
+                    sub_la = langcodes.Language.get(trak['Language']).to_tag()
+                    if trak['Language'] == 'zh':
+                        sub_la = "chs"
+                if s_sub:
+                    s_sub += '/'
+                s_sub += f"{sub_la}({trak['Format']})"
+        # print(json.dumps(douban, sort_keys=True, indent=2))
+        crf_value = re.match(r".*crf=(\d+\.\d+).*", video['Encoded_Library_Settings'])[1]
+        out = \
+f"""{media['@ref'].split('/')[-1]}
+
+NAME..........: {self.jimdb['name']}
+GENRE.........: {self.jimdb['genre'] if isinstance(self.jimdb['genre'], str) else " | ".join(self.jimdb['genre'])}
+RATiNG........: {self.jimdb['imdb_rating']}
+iMDB URL......: {self.jimdb['imdb_link']}
+DOUBAN URL....: {self.jdouban['douban_link']}
+RELEASE DATE..: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}
+ENCODE BY.....: spartazhc @ FRDS
+RUNTiME.......: {time.strftime('%H:%M:%S', time.gmtime(int(float(general['Duration']))))}
+FiLE SiZE.....: {int(general['FileSize']) / 2**30 :.2f} GiB
+
+ViDEO CODEC...: x265-3.4 @ {int(video['BitRate']) / 1000 :.0f} Kbps @crf={crf_value}
+RESOLUTiON....: {video['Sampled_Width']}x{video['Sampled_Height']}
+ASPECT RATiO..: {float(video['DisplayAspectRatio']):.2f}:1
+FRAME RATE....: {video['FrameRate']} fps
+SOURCE........: {os.path.basename(self.bd_path)}
+SUBTiTLES.....: {s_sub}
+{s_aud}
+    -= FRDS MNHD TEAM =-
+"""
+        print(out)
+        with open(mkv.replace('mkv', 'nfo'), "wt") as fd:
+            fd.write(out)
+
     def launch_task(self, sup):
         # TODO: 1. crf 2. crop
         audio_rate = '32k' if sup.get('audio').get('channels') == 'Mono' else '64k'
@@ -476,10 +544,10 @@ class FilmTask(TaskBase):
             'frames': m[1] if m else 0,
             'qcomp': 0.6,
             'preset': "veryslow",
-            'bframes': 16,
+            'bframes': 8,
             'b-adapt': 2,
             'ctu': 32,
-            'rd': 4,
+            '': 4,
             'subme': 7,
             'ref': 6,
             'rc-lookahead': 80,
@@ -488,7 +556,7 @@ class FilmTask(TaskBase):
             'colorprim': "bt709",
             'transfer': "bt709",
             'colormatrix': "bt709",
-            'deblock': "-3:-3",
+            'deblockrd': "-3:-3",
             'ipratio': 1.3,
             'pbratio': 1.2,
             'aq-mode': 2,
@@ -1054,32 +1122,21 @@ def main():
 
     args = parser.parse_args()
     params = vars(args)
-    print(params)
-
-    verbose = args.verbose
-    taskdir = args.taskdir
 
     logging.basicConfig(format='%(asctime)-15s %(name)-3s %(levelname)s %(message)s',
                         level=logging.INFO)
-    if (args.subparser_name == "gen"):
-        bdtask = FilmTask(params)
-        bdtask.run_gen()
 
-    elif (args.subparser_name == "status"):
-        os.chdir(taskdir)
-        status_main(taskdir)
+    bdtask = FilmTask(params)
+    if (args.subparser_name == "gen"):
+        bdtask.run_gen()
     elif (args.subparser_name == "crf"):
-        bdtask = FilmTask(params)
         bdtask.run_crf()
     elif (args.subparser_name == "extra"):
-        bdtask = FilmTask(params)
         bdtask.run_extra()
     elif (args.subparser_name == "mkv"):
-        bdtask = FilmTask(params)
         bdtask.run_mkv()
     elif (args.subparser_name == "nfo"):
-        os.chdir(taskdir)
-        nfo_main()
+        bdtask.run_nfo()
 
 
 if __name__ == "__main__":
