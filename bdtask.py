@@ -66,38 +66,6 @@ def crf_show():
         return
 
 
-def mkv_main(is_run, subs):
-    logger = logging.getLogger(name='MKV')
-    fileh = logging.FileHandler(f"bdtask.log", 'a')
-    formater = logging.Formatter(
-        '%(asctime)-15s %(name)-3s %(task)-5s %(levelname)s %(message)s')
-    fileh.setFormatter(formater)
-    logger.addHandler(fileh)
-    with open("config.yaml", 'r') as f:
-        cfg = yaml.load(f, Loader=yaml.FullLoader)
-    mkv = f"{cfg['pub_dir']}/{cfg['fullname']}.mkv"
-    hevc = f"components/hevc/crf-{cfg['crf_pick']}-full.hevc"
-
-    cmd = f"mkvmerge -o \"{mkv}\" --chapters components/chapters.xml -d 0 {hevc} "
-    cmd += f"--attachment-name cover --attach-file {cfg['pub_dir']}/cover.jpg "
-    for aud in cfg['aud']:
-        aud_lang = aud.split('.')[0][:-1]
-        cmd += f"-a 0 --language 0:{aud_lang} components/{aud} "
-    for sub in cfg['sub']:
-        sub_lang = sub.split('.')[0][:-1]
-        cmd += f"-s 0 --language 0:{sub_lang} components/{sub} "
-    while subs and len(subs) > 0:
-        cmd += f"-s 0 --language 0:\"{subs.pop(0)}\" --track-name 0:\"{subs.pop(0)}\" \"{subs.pop(0)}\" "
-    print(cmd)
-    # TODO: tee to log
-    if (is_run):
-        try:
-            o = subprocess.check_output(cmd, shell=True).decode("UTF-8")
-        except subprocess.CalledProcessError as e:
-            print("failed to execute command ", e.output)
-            raise
-        print(o)
-        logger.info("mkv muxed", extra={'task': 'mkv'})
 
 
 def nfo_main():
@@ -327,7 +295,7 @@ class FilmTask(TaskBase):
             self.gen_vs_scripts()
             self.extract_components()
             self.publish_info()
-            self.bluray_enhance()
+        self.bluray_enhance()
 
         self.export_task()
         # post process
@@ -425,6 +393,37 @@ class FilmTask(TaskBase):
         for sup in supplements:
             if sup.get('need') == 'true':
                 self.launch_task(sup)
+
+    def run_mkv(self):
+        self.logger.info("run mkv")
+        self.check_cache()
+        publish_dir = os.path.join(self.base_path, self.task_dict.get('publish'))
+        mkv = os.path.join(publish_dir,
+                           '.'.join(self.task_dict.get('publish').split('.')[1:]) + '.mkv')
+        hevc = os.path.join(self.comp_path,
+                        f"hevc/crf-{self.task_dict.get('crf_pick')}-full.hevc")
+
+        cmd = f"mkvmerge -o \"{mkv}\" --chapters {self.comp_path}/chapter.xml -d 0 {hevc} "
+        cmd += f"--attachment-name cover --attach-file \"{publish_dir}/cover.jpg\" "
+        for aud in self.task_dict.get('auds'):
+            aud_lang = aud.split('.')[0][:-1]
+            cmd += f"-a 0 --language 0:{aud_lang} {self.comp_path}/{aud} "
+        for sub in self.task_dict.get('subs'):
+            sub_lang = sub.split('.')[0][:-1]
+            cmd += f"-s 0 --language 0:{sub_lang} {self.comp_path}/{sub} "
+        esubs = self.params.get('subs')
+        while esubs and len(esubs) > 0:
+            cmd += f"-s 0 --language 0:\"{esubs.pop(0)}\" --track-name 0:\"{esubs.pop(0)}\" \"{subs.pop(0)}\" "
+        # TODO: tee to log
+        if (self.params.get('check')):
+            print(cmd)
+        else:
+            try:
+                o = subprocess.check_output(cmd, shell=True).decode("UTF-8")
+            except subprocess.CalledProcessError as e:
+                print("failed to execute command ", e.output)
+                raise
+            print(o)
 
     def launch_task(self, sup):
         # TODO: 1. crf 2. crop
@@ -534,7 +533,7 @@ class FilmTask(TaskBase):
             elif (aud['codec'] == "AC3"):
                 aud_name = f"{aud['language']}{i}.ac3"
                 aud_path = os.path.join(self.comp_path, aud_name)
-                subs.append(aud_name)
+                auds.append(aud_name)
                 cmd += f"-codec copy -map 0:i:{aud['pid']} \"{aud_path}\" "
             else:
                 self.logger.error(f"please support more audio codec {aud['codec']}")
@@ -973,13 +972,18 @@ else:
         root = tree.getroot()
         EditionEntry = root[0]
         for chap in EditionEntry.iterfind('ChapterAtom'):
+            chap[-1].tail = "\n\t\t\t"
             lang = ET.Element('ChapterDisplay')
-            sub = ET.SubElement(lang, 'ChapString')
+            lang.tail = "\n\t\t"
+            lang.text = "\n\t\t\t\t"
+            sub = ET.SubElement(lang, 'ChapterString')
+            sub.tail = "\n\t\t\t\t"
             sub.text = chapter_txt.pop(0)
-            sub = ET.SubElement(lang, 'ChapLanguage')
+            sub = ET.SubElement(lang, 'ChapterLanguage')
+            sub.tail = "\n\t\t\t"
             sub.text = "eng"
             chap.append(lang)
-        tree.write(os.path.join(self.comp_path, 'chapter.xml'))
+        tree.write(os.path.join(self.comp_path, 'chapter.xml'), encoding='utf-8', xml_declaration=True)
 
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
@@ -1039,8 +1043,8 @@ def main():
         'mkv', help='call mkvmerge to mux all components')
     parser_m.add_argument('-d', '--taskdir', type=str, default='.', required=True,
                           help='task dir')
-    parser_m.add_argument('--run', action='store_true',
-                          help='run the mkvmerge script')
+    parser_m.add_argument('--check', action='store_true', default=False,
+                          help='check command but not launch')
     parser_m.add_argument(
         '--sub', nargs='*', help='add additional subtitles: [lang] [track name] [file]')
     # subparser [nfo]
@@ -1071,10 +1075,8 @@ def main():
         bdtask = FilmTask(params)
         bdtask.run_extra()
     elif (args.subparser_name == "mkv"):
-        is_run = args.run
-        subs = args.sub
-        os.chdir(taskdir)
-        mkv_main(is_run, subs)
+        bdtask = FilmTask(params)
+        bdtask.run_mkv()
     elif (args.subparser_name == "nfo"):
         os.chdir(taskdir)
         nfo_main()
