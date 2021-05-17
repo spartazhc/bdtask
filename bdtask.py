@@ -17,12 +17,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-template_dir = "/home/spartazhc/source/bdtask/templates/"
-cfg = {}
-verbose = False
-
-fake_ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-'(KHTML, like Gecko) Chrome/80.0.3987.106 Safari/537.36'
+fake_ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36'
 
 ptgen_api = 'https://api.rhilip.info/tool/movieinfo/gen'
 # ptgen_api = 'https://api.nas.ink/infogen'
@@ -66,8 +61,6 @@ def crf_show():
             raise
         print(o)
         return
-
-
 
 
 def nfo_main():
@@ -152,7 +145,7 @@ class Supplement(TaskBase):
         self.duration = mpls.get('duration')
         if (mpls['clips'][0]['streams']['audio']):
             self.audio = {'codec': mpls['clips'][0]['streams']['audio'][0]['codec'],
-                      'channels': mpls['clips'][0]['streams']['audio'][0]['channels']}
+                          'channels': mpls['clips'][0]['streams']['audio'][0]['channels']}
         else:
             self.audio = {}
 
@@ -174,7 +167,7 @@ class Supplement(TaskBase):
             sup['playlist'] = self.playlist
             sup['duration'] = self.duration
             sup['type'] = 'supplement'
-            sup['crf'] = 23 # TODO
+            sup['crf'] = 23  # TODO
             sup['need'] = True
             if self.audio:
                 sup['audio'] = self.audio
@@ -221,7 +214,11 @@ class FilmTask(TaskBase):
 
     def logger_init(self, logger_name):
         self.logger = logging.getLogger(name=logger_name)
-        fileh = logging.FileHandler(os.path.join(self.base_path, 'bdtask.log'), 'a')
+        fileh = logging.FileHandler(
+            os.path.join(
+                self.base_path,
+                'bdtask.log'),
+            'a')
         formater = logging.Formatter(
             '%(asctime)-15s %(name)-3s %(levelname)s %(message)s')
         fileh.setFormatter(formater)
@@ -236,7 +233,8 @@ class FilmTask(TaskBase):
         country_codes = ["BFI", "CEE", "CAN", "CHN", "ESP", "EUR", "FRA", "GBR",
                          "GER", "HKG", "IND", "ITA", "JPN", "KOR", "NOR", "NLD",
                          "POL", "RUS", "TWN", "USA"]
-        cut_types = {'cc': 'Criterion Collection', 'criterion': 'Criterion Collection',
+        cut_types = {'cc': 'Criterion Collection',
+                     'criterion': 'Criterion Collection',
                      'director': 'Directors Cut',
                      'extended': 'Extended Cut', 'uncut': 'UNCUT',
                      'remastered': 'Remastered', 'repack': 'Repack',
@@ -274,7 +272,6 @@ class FilmTask(TaskBase):
                     name = re.match(r"([\w,.'!?&-]+)\.AKA.*", m[1])[1]
                 except TypeError:
                     print(f"vf_en: {vf_en}, fail in AKA regex match")
-            # fname = f"{name.replace('.', ' ')} ({year}) - [{cut if cut else reso}].{suffix}"
         else:
             name, year, reso = m[1], m[2], m[3].lower()
             if "AKA" in m[1]:
@@ -282,9 +279,14 @@ class FilmTask(TaskBase):
                     name = re.match(r"([\w,.'!?&-]+)\.AKA.*", m[1])[1]
                 except TypeError:
                     print(f"vf_en: {vf_en}, fail in AKA2 regex match")
-            # fname = f"{name.replace('.', ' ')} ({year}) - [{cut if cut else reso}].{suffix}"
         name = name.replace('.', ' ')
-        ret = {'name': name, 'year': year, 'resolution': reso, 'bluray_tag': cut}
+        ret = {
+            'name': name,
+            'year': year,
+            'resolution': reso,
+            'bluray_tag': cut.replace(
+                ' ',
+                '.')}
         print(f'filename parsed:{name}, {year}, {reso}, {cut}')
         return ret
 
@@ -304,7 +306,7 @@ class FilmTask(TaskBase):
         if self.params.get('vscache'):
             self.logger.info("call vspipe --info to generate cache.lwi")
             try:
-                o = subprocess.check_output(f"vspipe -i {os.path.join(self.vs_path, 'sample.vpy')} -",
+                o = subprocess.check_output(f"vspipe -i {os.path.join(self.vs_path, 'sample.py')} -",
                                             shell=True).decode("UTF-8")
             except subprocess.CalledProcessError as e:
                 print("failed to execute command ", e.output)
@@ -360,7 +362,8 @@ class FilmTask(TaskBase):
             crf_diff = crf_list
             cfg_update["crf"] = crf_list
         else:
-            crf_diff = [crf for crf in crf_list if str(crf) not in cfg_ori["crf"]]
+            crf_diff = [crf for crf in crf_list if str(
+                crf) not in cfg_ori["crf"]]
             cfg_update["crf"].extend(crf_diff)
             if (self.params.get('force')):
                 crf_diff = crf_list
@@ -399,11 +402,12 @@ class FilmTask(TaskBase):
     def run_mkv(self):
         self.logger.info("run mkv")
         self.check_cache()
-        publish_dir = os.path.join(self.base_path, self.task_dict.get('publish'))
+        publish_dir = os.path.join(
+            self.base_path, self.task_dict.get('publish'))
         mkv = os.path.join(publish_dir,
                            '.'.join(self.task_dict.get('publish').split('.')[1:]) + '.mkv')
         hevc = os.path.join(self.comp_path,
-                        f"hevc/crf-{self.task_dict.get('crf_pick')}-full.hevc")
+                            f"hevc/crf-{self.task_dict.get('crf_pick')}-full.hevc")
 
         cmd = f"mkvmerge -o \"{mkv}\" --chapters {self.comp_path}/chapter.xml -d 0 {hevc} "
         cmd += f"--attachment-name cover --attach-file \"{publish_dir}/cover.jpg\" "
@@ -430,12 +434,13 @@ class FilmTask(TaskBase):
     def run_nfo(self):
         self.logger.info("generate nfo")
         self.check_cache()
-        publish_dir = os.path.join(self.base_path, self.task_dict.get('publish'))
+        publish_dir = os.path.join(
+            self.base_path, self.task_dict.get('publish'))
         mkv = os.path.join(publish_dir,
                            '.'.join(self.task_dict.get('publish').split('.')[1:]) + '.mkv')
         try:
             o = subprocess.check_output(f"mediainfo --Output=JSON \"{mkv}\"",
-                                            shell=True).decode("UTF-8")
+                                        shell=True).decode("UTF-8")
         except subprocess.CalledProcessError as e:
             print("failed to execute command ", e.output)
             raise
@@ -466,9 +471,11 @@ class FilmTask(TaskBase):
                     s_sub += '/'
                 s_sub += f"{sub_la}({trak['Format']})"
         # print(json.dumps(douban, sort_keys=True, indent=2))
-        crf_value = re.match(r".*crf=(\d+\.\d+).*", video['Encoded_Library_Settings'])[1]
+        crf_value = re.match(
+            r".*crf=(\d+\.\d+).*",
+            video['Encoded_Library_Settings'])[1]
         out = \
-f"""{media['@ref'].split('/')[-1]}
+            f"""{media['@ref'].split('/')[-1]}
 
 NAME..........: {self.jimdb['name']}
 GENRE.........: {self.jimdb['genre'] if isinstance(self.jimdb['genre'], str) else " | ".join(self.jimdb['genre'])}
@@ -493,9 +500,24 @@ SUBTiTLES.....: {s_sub}
         with open(mkv.replace('mkv', 'nfo'), "wt") as fd:
             fd.write(out)
 
+    def run_torrent(self):
+        self.logger.info('generate torrent')
+        self.check_cache()
+        publish_dir = os.path.join(
+            self.base_path, self.task_dict.get('publish'))
+        cmd = f"mktorrent -v -p -l 22 -a https://tracker.keepfrds.com/announce.php " \
+              f"-o {publish_dir}.torrent {publish_dir}"
+        print(cmd)
+        try:
+            o = subprocess.check_output(cmd, shell=True).decode("UTF-8")
+        except subprocess.CalledProcessError as e:
+            print("failed to execute command ", e.output)
+            raise
+
     def launch_task(self, sup):
         # TODO: 1. crf 2. crop
-        audio_rate = '32k' if sup.get('audio').get('channels') == 'Mono' else '64k'
+        audio_rate = '32k' if sup.get('audio').get(
+            'channels') == 'Mono' else '64k'
         if 'crop' in sup.keys():
             width = int(sup.get('crop'))
             crop = f" -vf crop={width}:1080:{(1920-width)//2}:0 "
@@ -512,8 +534,7 @@ SUBTiTLES.....: {s_sub}
         if self.params.get('check'):
             print(post_data)
         else:
-            self.post(f"http://{self.params.get('server')}/add",
-                       post_data)
+            self.post(f"http://{self.params.get('server')}/add", post_data)
 
     @staticmethod
     def post(url, pf):
@@ -547,7 +568,7 @@ SUBTiTLES.....: {s_sub}
             'bframes': 8,
             'b-adapt': 2,
             'ctu': 32,
-            '': 4,
+            'rd': 4,
             'subme': 7,
             'ref': 6,
             'rc-lookahead': 80,
@@ -556,7 +577,7 @@ SUBTiTLES.....: {s_sub}
             'colorprim': "bt709",
             'transfer': "bt709",
             'colormatrix': "bt709",
-            'deblockrd': "-3:-3",
+            'deblock': "-3:-3",
             'ipratio': 1.3,
             'pbratio': 1.2,
             'aq-mode': 2,
@@ -583,7 +604,8 @@ SUBTiTLES.....: {s_sub}
         cmd = f"ffmpeg -hide_banner -playlist {self.playlist} -i \"bluray:{self.bd_path}\" "
         # TODO: deal with condition when there are multiple clips
         if (len(self.bdinfo['clips']) != 1):
-            self.logger.error("bdinfo shows more than one clip, please update this function")
+            self.logger.error(
+                "bdinfo shows more than one clip, please update this function")
             return
 
         clip = self.bdinfo['clips'][0]
@@ -604,10 +626,12 @@ SUBTiTLES.....: {s_sub}
                 auds.append(aud_name)
                 cmd += f"-codec copy -map 0:i:{aud['pid']} \"{aud_path}\" "
             else:
-                self.logger.error(f"please support more audio codec {aud['codec']}")
+                self.logger.error(
+                    f"please support more audio codec {aud['codec']}")
         for i, sub in enumerate(clip['streams']['subtitles']):
             if (sub['codec'] != "HDMV/PGS"):
-                self.logger.error(f"please support more subtitle codec {sub['codec']}")
+                self.logger.error(
+                    f"please support more subtitle codec {sub['codec']}")
                 break
             sub_name = f"{sub['language']}{i}.sup"
             sub_path = os.path.join(self.comp_path, sub_name)
@@ -704,7 +728,11 @@ SUBTiTLES.....: {s_sub}
         # Feature.Title.<YEAR>.<TAGS>.[LANGUAGE].<RESOLUTION>.<FORMAT>.<x264|x265>-GROUP
         tmp = []
         tmp.append(self.jdouban.get('chinese_title'))
-        tmp.append(re.sub(r"[^A-Za-z0-9_-]", '.', self.jdouban.get('foreign_title')))
+        tmp.append(
+            re.sub(
+                r"[^A-Za-z0-9_-]",
+                '.',
+                self.jdouban.get('foreign_title')))
         tmp.append(self.jimdb.get('year'))
         if (self.film_info.get('bluray_tag')):
             tmp.append(self.film_info.get('bluray_tag'))
@@ -755,11 +783,11 @@ SUBTiTLES.....: {s_sub}
         self.logger.info('通过Pt-GEN 获取资源 %s 详细简介', douban_url)
 
         rdouban = requests.get(ptgen_api, params={'url': douban_url}, headers={
-            'User-Agent': fake_ua})
+            'User-Agent': fake_ua}, verify='/etc/ssl/certs/ca-certificates.crt')
         rjdouban = rdouban.json()
         if rjdouban.get('success', False):
             rimdb = requests.get(ptgen_api, params={'url': rjdouban['imdb_link']}, headers={
-                'User-Agent': fake_ua})
+                'User-Agent': fake_ua}, verify='/etc/ssl/certs/ca-certificates.crt')
             rjimdb = rimdb.json()
             if not rjimdb.get('success', False):
                 raise FilmTaskStopException(
@@ -791,7 +819,7 @@ SUBTiTLES.....: {s_sub}
         with open(os.path.join(self.cache_path, "imdb.json"), "wt") as fd:
             fd.write(json.dumps(self.jimdb, indent=2))
         with open(os.path.join(self.cache_path, "bdinfo.yaml"), "wt") as fd:
-            yaml.dump(self.bdinfo, fd,sort_keys=False)
+            yaml.dump(self.bdinfo, fd, sort_keys=False)
 
     def gen_vs_scripts(self):
         self.logger.info('generate vapoursynth scripts')
@@ -865,15 +893,9 @@ else:
  "metadata": {
   "kernelspec": {
    "display_name": "Python 3",
-   "language": "python",t'
-            sup['crf'] = 23 # TODO
-            sup['need'] = True
-            if self.audio:
-                sup['audio'] = self.audio
-            if self.desc:
-                sup['desc'] = self.desc
-            return [sup]
-
+   "language": "python",
+   "name": "python3"
+  },
   "language_info": {
    "codemirror_mode": {
     "name": "ipython",
@@ -899,7 +921,7 @@ else:
     def get_chapters(self):
         try:
             o = subprocess.check_output(f"bdinfo -cp {self.playlist} \"{self.bd_path}\""
-                                f" > \"{os.path.join(self.cache_path, 'chapter.xml')}\"",
+                                        f" > \"{os.path.join(self.cache_path, 'chapter.xml')}\"",
                                         shell=True).decode("UTF-8")
         except subprocess.CalledProcessError as e:
             print("failed to execute command ", e.output)
@@ -934,6 +956,9 @@ else:
     def bluray_enhance(self):
         self.logger.info('try to add supplements')
         try:
+            # jar_path = os.path.join(self.bd_path, "BDMV/JAR/00001")
+
+            # if os.path.isfile()
             with open(os.path.join(self.bd_path, "BDMV/JAR/00001/eng_us.txt"), 'r') as fd:
                 bdtxt = fd.read()
         except BaseException:
@@ -949,7 +974,7 @@ else:
         sub_mpls = []
         bdinfo_all = yaml.load_all(o.replace("]", " "), Loader=yaml.BaseLoader)
         for mpls in bdinfo_all:
-            m = re.search("(008\d+).mpls", mpls.get('playlist'))
+            m = re.search("(008\\d+).mpls", mpls.get('playlist'))
             if m:
                 sub_mpls.append(mpls)
         bdtxt = bdtxt.replace('§', '')
@@ -966,7 +991,7 @@ else:
         lines = []
         last_parent = None
         # i = 0
-        for m in re.finditer("\d+=([0-9A-Za-z,:;()\n'\"\s.?!]+)\n", bdtxt):
+        for m in re.finditer("\\d+=([0-9A-Za-z,:;()\n'\"\\s.?!]+)\n", bdtxt):
             if m[1]:  # and m[1] != 'PLAY':
                 lines.append(m[1].replace('\n', ' ').strip())
                 # print(i, m[1].replace('\n', ' ').strip())
@@ -978,7 +1003,7 @@ else:
         for i in range(len(lines)):
             # print(line)
             if chapter_flag:
-                ch = re.search("\d+\. ([0-9A-Za-z,;\n'\"\s.?!]+)", lines[i])
+                ch = re.search("\\d+\\. ([0-9A-Za-z,;\n'\"\\s.?!]+)", lines[i])
                 if ch:
                     chapter_txt.append(ch[1])
                     continue
@@ -1030,9 +1055,9 @@ else:
                             last_parent.add_sub(sup)
                             sup_dict[lines[i]] = sup
         # print(chapter_txt)
-        # for sup in self.supplements:
-        #     print(sup)
-        #     print('-----------')
+        for sup in self.supplements:
+            print(sup)
+            print('-----------')
         self.enhance_chapter(chapter_txt)
 
     def enhance_chapter(self, chapter_txt):
@@ -1051,7 +1076,13 @@ else:
             sub.tail = "\n\t\t\t"
             sub.text = "eng"
             chap.append(lang)
-        tree.write(os.path.join(self.comp_path, 'chapter.xml'), encoding='utf-8', xml_declaration=True)
+        tree.write(
+            os.path.join(
+                self.comp_path,
+                'chapter.xml'),
+            encoding='utf-8',
+            xml_declaration=True)
+
 
 def main():
     parser = argparse.ArgumentParser(prog='bdtask',
@@ -1100,7 +1131,8 @@ def main():
     parser_c.add_argument('--full', action='store_true',
                           help='run full encode')
     # subparser [extra]
-    parser_e = subparsers.add_parser('extra', help='configure and launch supplements')
+    parser_e = subparsers.add_parser(
+        'extra', help='configure and launch supplements')
     parser_e.add_argument('-d', '--taskdir', type=str, default='.', required=True,
                           help='task dir')
     parser_e.add_argument('--server', type=str, help='server IP post to')
@@ -1118,6 +1150,9 @@ def main():
     # subparser [nfo]
     parser_n = subparsers.add_parser('nfo', help='generate nfo from mkv')
     parser_n.add_argument('-d', '--taskdir', type=str, default='.', required=True,
+                          help='task dir')
+    parser_t = subparsers.add_parser('torrent', help='make torrent')
+    parser_t.add_argument('-d', '--taskdir', type=str, default='.', required=True,
                           help='task dir')
 
     args = parser.parse_args()
@@ -1137,6 +1172,8 @@ def main():
         bdtask.run_mkv()
     elif (args.subparser_name == "nfo"):
         bdtask.run_nfo()
+    elif (args.subparser_name == "torrent"):
+        bdtask.run_torrent()
 
 
 if __name__ == "__main__":
